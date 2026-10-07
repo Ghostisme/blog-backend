@@ -81,9 +81,22 @@ read -rsp '口令: ' P; echo; printf '%s' "$P" | docker run --rm -i httpd:2.4-al
 
 ### 用 Jenkins 部署
 
-1. 在 Jenkins 凭据里创建 5 个 Secret text：`blog-db-root-password`、`blog-db-password`、`blog-jwt-secret`、`blog-admin-username`、`blog-admin-password-hash`。
-2. 新建流水线任务指向本仓库，使用根目录的 `Jenkinsfile`。构建节点需要 JDK 17 与 Docker，且就是目标 VPS（或能访问其 Docker）。
-3. 首次构建参数里把 `BLOG_API_PORT` 改成 VPS 上空闲的端口。
+1. 新建流水线任务指向本仓库，使用根目录的 `Jenkinsfile`。构建节点需要 JDK 17+ 与 Docker，且就是目标 VPS（或能访问其 Docker）。
+2. 密钥以**构建参数**传入，不需要在 Jenkins 里建凭据。第一次点 `Build Now` 只是让 Jenkins 登记参数，会在「Validate parameters」阶段失败，这是预期的；之后用 `Build with Parameters` 填写：
+
+| 参数 | 类型 | 说明 |
+|---|---|---|
+| `BLOG_API_PORT` | 文本 | 默认 18086，需与 Nginx 的 `proxy_pass` 一致 |
+| `BLOG_DB_ROOT_PASSWORD`、`BLOG_DB_PASSWORD` | 密码 | 首次构建时设定，**之后每次都要填同一个值** |
+| `BLOG_JWT_SECRET` | 密码 | ≥ 32 字符 |
+| `BLOG_ADMIN_USERNAME` | 文本 | 管理员用户名 |
+| `BLOG_ADMIN_PASSWORD_HASH` | 密码 | BCrypt 哈希，生成方式见上 |
+
+参数方式的取舍：
+- 每次构建都要重新填全部密钥，Jenkins 不会记住上次的值；因此**不能用 webhook 或定时任务自动触发**，自动触发时参数为空，会在校验阶段失败。
+- 密码类参数在界面上掩码显示、加密保存，但它不是凭据存储，有「构建」权限的人仍能打开参数页面。
+- MySQL 口令只在数据卷首次初始化时生效，之后填错不会改动数据库，只会让 API 连不上库。
+- 想要自动触发或不想每次手填，可改回 Jenkins 凭据：Jenkinsfile 里用 `credentials('...')` 读取即可。
 
 ### 手动部署
 
