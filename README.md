@@ -82,16 +82,17 @@ read -rsp '口令: ' P; echo; printf '%s' "$P" | docker run --rm -i httpd:2.4-al
 ### 用 Jenkins 部署
 
 1. 新建流水线任务指向本仓库，使用根目录的 `Jenkinsfile`。构建节点需要 JDK 17+ 与 Docker，且就是目标 VPS（或能访问其 Docker）。
-2. 在 Jenkins → Credentials 建一个 **Secret file**，ID 必须是 `blog-env`（和 `agent-studio-env` / `flowpilot-env` 同一套约定）。内容按 `.env.example` 填好后整份贴进去，**只需这一次**。之后点 Build Now / webhook 都会自动注入，不必再填口令。
-3. 构建参数只剩非机密项，都有默认值，平时不用改：
+2. **第一次**用 `Build with Parameters`，把数据库口令 / JWT / 管理员用户名和哈希填全。流水线会写到 Jenkins 服务器 `/var/lib/jenkins/blog.env`（权限 600）。**之后点 Build Now，这些框留空就会用已保存的值**，不必再填，也不用去 Credentials 页上传文件。想换口令时再填一次即可覆盖。
+3. 非机密参数都有默认值，平时不用改：
 
 | 参数 | 说明 |
 |---|---|
 | `BLOG_API_PORT` | 默认 18086，需与 Nginx 的 `proxy_pass` 一致 |
 | `RUN_TESTS` | 默认开启。VPS 内存紧张时可关掉（集成测试会临时起 MySQL 容器） |
 | `JDK_HOME` | 编译用的 JDK 目录，默认 `/usr/lib/jvm/java-17-openjdk-amd64` |
+| 密钥五项 | 第一次必填；之后留空 = 用服务器上已保存的值 |
 
-MySQL 口令只在数据卷首次初始化时生效。之后改凭据文件不会改数据库里的口令，只会让 API 连不上。若之前漏填口令已经把空库初始化坏了、且库里没有要保留的数据，先停掉再删卷再部署：
+MySQL 口令只在数据卷首次初始化时生效。之后改已保存的文件不会改数据库里的口令，只会让 API 连不上。若之前漏填口令已经把空库初始化坏了、且库里没有要保留的数据，先停掉再删卷再部署：
 
 ```bash
 docker compose -p blog down
