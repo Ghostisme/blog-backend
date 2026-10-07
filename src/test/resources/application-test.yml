@@ -1,0 +1,17 @@
+# 集成测试专用。数据库连接由 IntegrationTestBase 的 @DynamicPropertySource 覆盖为 Testcontainers 实例，
+# 这里的占位值只是为了让 application.yml 里无默认值的 ${...} 占位符在绑定时不报错。
+spring:
+  datasource:
+    url: jdbc:mysql://unused:3306/unused
+    username: unused
+    password: unused
+
+blog:
+  admin:
+    username: admin
+    # 对应明文 dev-password-123（与 dev profile 相同，仅测试使用）
+    password-hash: "$2a$10$roLC.Xl00M7N8lMjerWGjuALxf/pNEDtAOAD4y/4qC3gYX1O7NO1y"
+  jwt:
+    secret: test-only-secret-test-only-secret-0123456789
+  cookie:
+    secure: false
