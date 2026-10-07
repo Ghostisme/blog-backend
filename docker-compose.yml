@@ -1,0 +1,80 @@
+# 博客后端 + 独立 MySQL。
+#
+# 部署在已经跑着许多容器的共用 VPS 上，所以刻意做到：
+#   * 不新增任何对外端口：MySQL 完全不映射；API 只绑定 127.0.0.1，由宿主机 Nginx 反代；
+#   * 独立网络 / 独立数据卷，所有资源都带 blog 前缀，不与现有容器混用；
+#   * 限制内存和日志大小，避免拖垮同机的其它服务。
+# 所有 ${VAR:?} 都是必填项：缺失时 compose 直接报错，而不是带着空口令启动。
+name: blog
+
+services:
+  blog-mysql:
+    image: mysql:8.0
+    container_name: blog-mysql
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      # 与应用的 user.timezone 一致，CURRENT_TIMESTAMP 才和 Java 侧时间同口径
+      - --default-time-zone=+08:00
+      # 共用 VPS：默认 128M 缓冲池即可满足个人博客，不占用过多内存
+      - --innodb-buffer-pool-size=128M
+      # ngram 分词的词长，默认就是 2；写出来是为了让“中文全文检索依赖它”这件事可见
+      - --ngram-token-size=2
+    environment:
+      MYSQL_ROOT_PASSWORD: ${BLOG_DB_ROOT_PASSWORD:?请在 .env 中设置 BLOG_DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: blog
+      MYSQL_USER: blog
+      MYSQL_PASSWORD: ${BLOG_DB_PASSWORD:?请在 .env 中设置 BLOG_DB_PASSWORD}
+      TZ: Asia/Shanghai
+    volumes:
+      - blog-mysql-data:/var/lib/mysql
+    networks:
+      - blog-net
+    # 注意：这里没有 ports。MySQL 只在 blog-net 内部可达。
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    logging: &default-logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  blog-api:
+    build: .
+    image: blog-backend:${IMAGE_TAG:-latest}
+    container_name: blog-api
+    restart: unless-stopped
+    depends_on:
+      blog-mysql:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      # 容器内网络直连；useSSL=false 仅限这个不对外暴露的私有网络
+      BLOG_DB_URL: jdbc:mysql://blog-mysql:3306/blog?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      BLOG_DB_USERNAME: blog
+      BLOG_DB_PASSWORD: ${BLOG_DB_PASSWORD:?请在 .env 中设置 BLOG_DB_PASSWORD}
+      BLOG_JWT_SECRET: ${BLOG_JWT_SECRET:?请在 .env 中设置 BLOG_JWT_SECRET（至少 32 个字符）}
+      BLOG_ADMIN_USERNAME: ${BLOG_ADMIN_USERNAME:?请在 .env 中设置 BLOG_ADMIN_USERNAME}
+      BLOG_ADMIN_PASSWORD_HASH: ${BLOG_ADMIN_PASSWORD_HASH:?请在 .env 中设置 BLOG_ADMIN_PASSWORD_HASH}
+    ports:
+      # 只绑定回环地址：公网无法直接访问，只有本机 Nginx 能反代进来。
+      # 宿主机端口可通过 BLOG_API_PORT 调整，用来避开 VPS 上已被占用的端口。
+      - "127.0.0.1:${BLOG_API_PORT:-18086}:8080"
+    networks:
+      - blog-net
+    mem_limit: 512m
+    logging: *default-logging
+
+networks:
+  blog-net:
+    name: blog-net
+
+volumes:
+  blog-mysql-data:
+    name: blog-mysql-data
