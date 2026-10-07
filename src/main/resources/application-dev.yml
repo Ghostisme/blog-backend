@@ -1,0 +1,25 @@
+# 仅限本地开发。这里的口令、密钥都是公开的占位值，绝不能用于线上：
+# 生产由 Docker 环境变量注入真实值，并固定 SPRING_PROFILES_ACTIVE=prod。
+spring:
+  datasource:
+    # 本地开发库的宿主机端口。用 23306 而不是常见的 3306/13306：开发机若通过 SSH 隧道连着 VPS，
+    # 容易与远端已占用的端口混淆。想换端口时设置环境变量 BLOG_DB_URL 即可，无需改这个文件。
+    # README 里给出了对应的 docker run 命令（端口要保持一致）
+    url: ${BLOG_DB_URL:jdbc:mysql://127.0.0.1:23306/blog?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&connectionTimeZone=Asia/Shanghai}
+    username: ${BLOG_DB_USERNAME:blog}
+    password: ${BLOG_DB_PASSWORD:blog-dev-password}
+
+blog:
+  admin:
+    username: admin
+    # 对应明文 dev-password-123
+    password-hash: "$2a$10$roLC.Xl00M7N8lMjerWGjuALxf/pNEDtAOAD4y/4qC3gYX1O7NO1y"
+  jwt:
+    secret: dev-only-secret-dev-only-secret-dev-only-secret-0123456789
+  cookie:
+    # 本地是 http://localhost，Secure cookie 不会被浏览器保存
+    secure: false
+
+logging:
+  level:
+    com.darkrich.blog: debug

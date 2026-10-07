@@ -1,0 +1,12 @@
+# 生产环境补充配置。敏感项由 Docker 环境变量注入（见 docker-compose.yml），这里不放任何口令。
+server:
+  error:
+    # 出错时不向外暴露异常信息和堆栈。详细原因只写日志，见 GlobalExceptionHandler
+    include-message: never
+    include-stacktrace: never
+    include-binding-errors: never
+
+logging:
+  level:
+    root: INFO
+    com.darkrich.blog: INFO
