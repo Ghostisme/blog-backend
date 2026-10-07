@@ -32,6 +32,8 @@ pipeline {
                description: 'API 在宿主机上监听的端口（仅 127.0.0.1）。请选一个 VPS 上未被占用的端口，并与 Nginx 的 proxy_pass 保持一致')
         booleanParam(name: 'RUN_TESTS', defaultValue: true,
                      description: '是否执行测试。集成测试会用 Testcontainers 临时起一个 MySQL 容器，内存紧张时可取消')
+        string(name: 'JDK_HOME', defaultValue: '/usr/lib/jvm/java-17-openjdk-amd64',
+               description: '编译测试用的 JDK 目录，必须含 javac 且支持 --release 17。Jenkins 服务进程的 PATH 往往和登录 shell 不同，不能依赖默认 java')
 
         // 以下参数会被 Jenkins 自动导出为同名环境变量，docker-compose.yml 直接读取，不需要再写 environment 段。
         // 刻意不设默认值：默认值会明文写进本仓库，等于把密钥提交了。
@@ -98,6 +100,14 @@ pipeline {
                 // 不清掉的话，集成测试会拿真实的管理员哈希去验证测试口令，登录相关的用例必然失败。
                 // 不能改成设为空字符串：空值同样会覆盖 yml，并触发配置校验失败。
                 sh '''
+                    # Jenkins 服务进程的 PATH / JAVA_HOME 和登录 shell 不是同一套。
+                    # 本机曾出现：登录用户 javac 是 17，服务进程却用了不支持 --release 17 的 javac。
+                    # 这里钉死到参数 JDK_HOME，让 Maven 和 javac 都来自同一个完整 JDK。
+                    export JAVA_HOME="${JDK_HOME:-/usr/lib/jvm/java-17-openjdk-amd64}"
+                    export PATH="$JAVA_HOME/bin:$PATH"
+                    echo "JAVA_HOME=$JAVA_HOME"
+                    command -v java; java -version
+                    command -v javac; javac -version
                     env -u BLOG_ADMIN_USERNAME -u BLOG_ADMIN_PASSWORD_HASH -u BLOG_JWT_SECRET \
                         -u BLOG_DB_PASSWORD -u BLOG_DB_ROOT_PASSWORD \
                         ./mvnw -B test
