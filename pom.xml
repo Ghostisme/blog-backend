@@ -87,6 +87,19 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- 从公开网页抽正文转成 Markdown；只在管理员导入链接时用 -->
+        <dependency>
+            <groupId>org.jsoup</groupId>
+            <artifactId>jsoup</artifactId>
+            <version>1.21.2</version>
+        </dependency>
+        <!-- 简历 PDF 抽文本。扫描件没有文字层，抽不出内容，会明确报错而不是填空表 -->
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+            <version>3.0.5</version>
+        </dependency>
+
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>

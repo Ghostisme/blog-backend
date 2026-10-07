@@ -4,6 +4,7 @@ import com.darkrich.blog.common.ApiResponse;
 import com.darkrich.blog.common.PageResult;
 import com.darkrich.blog.module.importer.ImportResult;
 import com.darkrich.blog.module.importer.ImportService;
+import com.darkrich.blog.module.importer.ImportUrlsRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -72,5 +73,11 @@ public class AdminArticleController {
     @PostMapping("/import")
     public ApiResponse<ImportResult> importFiles(@RequestParam("files") List<MultipartFile> files) {
         return ApiResponse.ok(importService.importFiles(files));
+    }
+
+    /** 从公开链接导入，统一进入草稿。单条失败不影响其它链接。 */
+    @PostMapping("/import-urls")
+    public ApiResponse<ImportResult> importUrls(@Valid @RequestBody ImportUrlsRequest req) {
+        return ApiResponse.ok(importService.importUrls(req.urls()));
     }
 }

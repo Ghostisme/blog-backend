@@ -351,4 +351,29 @@ class AdminApiIntegrationTest extends IntegrationTestBase {
         assertFalse(mvc.perform(get("/api/resume").param("lang", "zh")).andReturn()
                 .getResponse().getContentAsString().contains("javascript:"));
     }
+
+    @Test
+    void importUrlsRejectsPrivateAddressesAndDoesNotPersist() throws Exception {
+        Cookie session = login();
+        String body = json.writeValueAsString(Map.of("urls", List.of("http://127.0.0.1/secret")));
+        mvc.perform(post("/api/admin/articles/import-urls").cookie(session)
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.failed").value(1))
+                .andExpect(jsonPath("$.data.imported").value(0));
+        mvc.perform(get("/api/admin/articles").cookie(session))
+                .andExpect(jsonPath("$.data.total").value(0));
+    }
+
+    @Test
+    void parsePdfRequiresLoginAndRejectsNonPdf() throws Exception {
+        mvc.perform(multipart("/api/admin/resume/parse-pdf")
+                        .file(new MockMultipartFile("file", "a.pdf", "application/pdf", "x".getBytes(StandardCharsets.UTF_8))))
+                .andExpect(status().isUnauthorized());
+
+        mvc.perform(multipart("/api/admin/resume/parse-pdf")
+                        .file(new MockMultipartFile("file", "a.txt", "text/plain", "hello".getBytes(StandardCharsets.UTF_8)))
+                        .cookie(login()))
+                .andExpect(status().isBadRequest());
+    }
 }

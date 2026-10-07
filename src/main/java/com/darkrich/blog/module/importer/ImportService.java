@@ -49,8 +49,12 @@ public class ImportService {
             "git", ArticleClassifier.DEVOPS,
             "github", ArticleClassifier.DEVOPS);
 
+    /** 单次最多链接数。每条都要出网，压低以免拖垮构建节点和目标站。 */
+    static final int MAX_URLS = 10;
+
     private final AdminArticleService articleService;
     private final CategoryService categoryService;
+    private final ArticleUrlFetcher urlFetcher;
 
     public ImportResult importFiles(List<MultipartFile> files) {
         if (files == null || files.isEmpty()) {
@@ -69,6 +73,38 @@ public class ImportService {
         return ImportResult.of(items);
     }
 
+    /**
+     * 从公开链接导入。单条失败只记结果，不中断整批。
+     * 去重按「本次请求内的原始字符串」；同一篇文章的不同 URL 仍可能各导入一次，靠标题 slug 跳过。
+     */
+    public ImportResult importUrls(List<String> urls) {
+        if (urls == null || urls.isEmpty()) {
+            throw BusinessException.badRequest("请填写文章链接");
+        }
+        List<String> cleaned = new ArrayList<>();
+        for (String raw : urls) {
+            if (raw == null || raw.isBlank()) {
+                continue;
+            }
+            String url = raw.trim();
+            if (!cleaned.contains(url)) {
+                cleaned.add(url);
+            }
+        }
+        if (cleaned.isEmpty()) {
+            throw BusinessException.badRequest("请填写文章链接");
+        }
+        if (cleaned.size() > MAX_URLS) {
+            throw BusinessException.badRequest("单次最多导入 " + MAX_URLS + " 条链接");
+        }
+        Map<String, Long> categoryLookup = buildCategoryLookup();
+        List<ImportResult.Item> items = new ArrayList<>(cleaned.size());
+        for (String url : cleaned) {
+            items.add(importOneUrl(url, categoryLookup));
+        }
+        return ImportResult.of(items);
+    }
+
     private ImportResult.Item importOne(MultipartFile file, Map<String, Long> categoryLookup) {
         String fileName = displayName(file.getOriginalFilename());
         try {
@@ -82,29 +118,11 @@ public class ImportService {
 
             MarkdownParser.ParsedArticle parsed =
                     MarkdownParser.parse(fileName, new String(file.getBytes(), StandardCharsets.UTF_8));
-
-            // slug 由标题派生且稳定：重复导入同一篇文章会得到同一个 slug，据此识别并跳过
-            String slug = SlugUtil.generate(parsed.title(), "post", SLUG_BASE_LENGTH);
-            if (articleService.existsBySlug(slug)) {
-                return ImportResult.Item.skipped(fileName, parsed.title(), "已存在同标题文章，已跳过");
-            }
-
-            ArticleClassifier.Suggestion suggestion =
-                    ArticleClassifier.classify(parsed.title(), parsed.tags(), parsed.content());
-            Long categoryId = resolveCategory(categoryLookup, parsed.categoryHint(), suggestion.categoryCode());
-
-            ArticleEditView created = articleService.create(new ArticleSaveRequest(
-                    parsed.title(), slug, parsed.summary(), parsed.content(),
-                    suggestion.level(), categoryId,
-                    // 一律草稿：领域、等级都是机器猜的，必须由人确认后再发布
-                    ArticleStatus.DRAFT,
-                    parsed.tags(), parsed.sourceUrl(), parsed.sourceAuthor(), parsed.coverUrl(), null));
-            return ImportResult.Item.imported(fileName, created.title(), created.id());
+            return saveParsed(fileName, parsed, categoryLookup);
 
         } catch (BusinessException e) {
             return ImportResult.Item.failed(fileName, e.getMessage());
         } catch (DuplicateKeyException e) {
-            // existsBySlug 检查之后、插入之前被并发写入同 slug：按“已存在”处理即可
             return ImportResult.Item.skipped(fileName, null, "已存在同标题文章，已跳过");
         } catch (IOException e) {
             log.warn("读取上传文件失败: {}", fileName, e);
@@ -114,6 +132,39 @@ public class ImportService {
             log.warn("导入文件失败: {}", fileName, e);
             return ImportResult.Item.failed(fileName, "解析或保存失败");
         }
+    }
+
+    private ImportResult.Item importOneUrl(String url, Map<String, Long> categoryLookup) {
+        try {
+            MarkdownParser.ParsedArticle parsed = urlFetcher.fetch(url);
+            return saveParsed(url, parsed, categoryLookup);
+        } catch (BusinessException e) {
+            return ImportResult.Item.failed(url, e.getMessage());
+        } catch (DuplicateKeyException e) {
+            return ImportResult.Item.skipped(url, null, "已存在同标题文章，已跳过");
+        } catch (RuntimeException e) {
+            log.warn("导入链接失败: {}", url, e);
+            return ImportResult.Item.failed(url, "抓取或保存失败");
+        }
+    }
+
+    private ImportResult.Item saveParsed(String source, MarkdownParser.ParsedArticle parsed,
+                                         Map<String, Long> categoryLookup) {
+        // slug 由标题派生且稳定：重复导入同一篇文章会得到同一个 slug，据此识别并跳过
+        String slug = SlugUtil.generate(parsed.title(), "post", SLUG_BASE_LENGTH);
+        if (articleService.existsBySlug(slug)) {
+            return ImportResult.Item.skipped(source, parsed.title(), "已存在同标题文章，已跳过");
+        }
+        ArticleClassifier.Suggestion suggestion =
+                ArticleClassifier.classify(parsed.title(), parsed.tags(), parsed.content());
+        Long categoryId = resolveCategory(categoryLookup, parsed.categoryHint(), suggestion.categoryCode());
+        ArticleEditView created = articleService.create(new ArticleSaveRequest(
+                parsed.title(), slug, parsed.summary(), parsed.content(),
+                suggestion.level(), categoryId,
+                // 一律草稿：领域、等级都是机器猜的，必须由人确认后再发布
+                ArticleStatus.DRAFT,
+                parsed.tags(), parsed.sourceUrl(), parsed.sourceAuthor(), parsed.coverUrl(), null));
+        return ImportResult.Item.imported(source, created.title(), created.id());
     }
 
     /**
