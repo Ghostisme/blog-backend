@@ -1,0 +1,10 @@
+# 统一换行符，不依赖各人机器上的 core.autocrlf 设置。
+# 脚本必须是 LF：Jenkins / Docker 在 Linux 上执行，CRLF 会让 shebang 变成 "/bin/sh^M"，
+# 报 "bad interpreter: No such file or directory"，而且从报错里很难看出是换行符的问题。
+* text=auto
+mvnw text eol=lf
+Jenkinsfile text eol=lf
+Dockerfile text eol=lf
+*.sh text eol=lf
+# Windows 批处理在 Windows 上执行，用 CRLF
+*.cmd text eol=crlf
