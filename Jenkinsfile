@@ -1,18 +1,19 @@
-// 博客后端流水线：参数校验 → 测试 → 构建镜像 → 部署 → 健康检查。
+// 博客后端流水线：凭据校验 → 测试 → 构建镜像 → 部署 → 健康检查。
 //
 // 前置条件（Jenkins 节点需满足）：
 //   1. 节点上有 JDK 17+ 和 Docker（能执行 docker / docker compose），并且就是要部署的那台 VPS；
 //      如果 Jenkins 自己跑在容器里，需要挂载宿主机的 /var/run/docker.sock。
-//   2. 密钥不放在 Jenkins「凭据」里，而是作为【构建参数】在点 "Build with Parameters" 时填写（见 parameters 段）。
-//      管理员口令哈希的生成方式见 README。
+//   2. Jenkins 里已建好 Secret file 凭据，ID 固定为 blog-env（内容格式见 .env.example）。
+//      密钥存在 Jenkins 服务器上，构建时自动注入，不必每次手填。
+//   3. 管理员口令哈希的生成方式见 README。
 //
-// 关于用参数传密钥，需要知道的取舍：
-//   * 每次构建都要重新填写全部密钥——Jenkins 不会记住上一次填的值。
-//     也因此无法用 webhook / 定时任务自动触发：自动触发时参数是空的，会在"参数校验"阶段直接失败。
-//   * password 类型的参数在界面上是掩码显示，并以加密形式保存在构建记录里；但它不等于凭据存储，
-//     有"构建"权限的人仍然能打开参数页面。
-//   * MySQL 的两个口令只在数据卷【首次初始化】时生效。之后每次构建必须填回【同一个值】：
-//     API 用它连库，填错会连不上(容器会 unhealthy)；而数据库里的口令不会被改变。
+// 关于密钥存放：
+//   * 不要用「构建参数」传口令——Jenkins 不会记住上次填的值，漏填就会部署失败。
+//     MySQL 口令只在数据卷首次初始化时生效，填错或漏填之后改参数也改不回数据库里的口令。
+//   * Secret file 在 withCredentials 块内被写到临时路径，块结束即删除，
+//     不进工作区、不进 git、不写入镜像层。解析规则见 deploy/export-blog-env.sh。
+//   * MySQL 的两个口令只在数据卷【首次初始化】时生效。之后改凭据文件不会改变数据库里的口令，
+//     只会让 API 连不上（容器 unhealthy）。要换口令必须先处理数据卷。
 //
 // 对 VPS 上其它容器的影响：
 //   只操作 compose 项目 "blog" 下的 blog-api / blog-mysql，以及带 blog-backend 名字的镜像；
@@ -34,71 +35,63 @@ pipeline {
                      description: '是否执行测试。集成测试会用 Testcontainers 临时起一个 MySQL 容器，内存紧张时可取消')
         string(name: 'JDK_HOME', defaultValue: '/usr/lib/jvm/java-17-openjdk-amd64',
                description: '编译测试用的 JDK 目录，必须含 javac 且支持 --release 17。Jenkins 服务进程的 PATH 往往和登录 shell 不同，不能依赖默认 java')
-
-        // 以下参数会被 Jenkins 自动导出为同名环境变量，docker-compose.yml 直接读取，不需要再写 environment 段。
-        // 刻意不设默认值：默认值会明文写进本仓库，等于把密钥提交了。
-        password(name: 'BLOG_DB_ROOT_PASSWORD', defaultValue: '',
-                 description: 'MySQL root 口令。仅在数据卷首次初始化时生效，之后每次都要填同一个值')
-        password(name: 'BLOG_DB_PASSWORD', defaultValue: '',
-                 description: '应用连接 MySQL 用的口令。仅在数据卷首次初始化时生效，之后每次都要填同一个值')
-        password(name: 'BLOG_JWT_SECRET', defaultValue: '',
-                 description: 'JWT 签名密钥，至少 32 个字符。更换它会让所有已登录的管理员会话失效')
-        string(name: 'BLOG_ADMIN_USERNAME', defaultValue: '',
-               description: '管理员用户名（不是机密，所以用普通文本参数）')
-        password(name: 'BLOG_ADMIN_PASSWORD_HASH', defaultValue: '',
-                 description: '管理员口令的 BCrypt 哈希，以 $2a$ / $2b$ / $2y$ 开头，共 60 个字符。生成方式见 README')
     }
 
     environment {
         IMAGE_TAG = "${env.BUILD_NUMBER}"
+        // 与其它项目（agent-studio-env / flowpilot-env / lumax-env）同一套约定：一个 Secret file 凭据。
+        BLOG_ENV_CREDENTIAL_ID = 'blog-env'
     }
 
     stages {
-        stage('Validate parameters') {
+        stage('Validate credentials') {
             steps {
-                // 开头的 #! 不能省：Jenkins 遇到没有 shebang 的脚本，会用 "sh -xe" 执行，
-                // -x 会把每条命令展开后的内容打印到日志，参数值就全泄露了。
-                // 有了 shebang，脚本按原样执行，不加 -x。
-                // 这里只报告"缺哪一项 / 哪一项格式不对"，绝不输出任何参数的值或长度。
-                sh '''#!/bin/bash
-                    set -u
-                    bad=0
-                    for name in BLOG_API_PORT BLOG_DB_ROOT_PASSWORD BLOG_DB_PASSWORD BLOG_JWT_SECRET BLOG_ADMIN_USERNAME BLOG_ADMIN_PASSWORD_HASH; do
-                        if [ -z "${!name:-}" ]; then
-                            echo "缺少参数: $name"; bad=1
-                        fi
-                    done
-                    if [ "$bad" = 1 ]; then
-                        echo "请用 'Build with Parameters' 并填全上面列出的参数。"
-                        echo "（第一次点 Build Now 时 Jenkins 还没有登记这些参数，这次失败是预期的。）"
-                        exit 1
-                    fi
+                // Secret file 只在本 stage 和 Deploy 里打开，测试 stage 拿不到生产口令，
+                // 避免 Spring 环境变量盖住 application-test.yml 导致登录用例失败。
+                withCredentials([file(credentialsId: env.BLOG_ENV_CREDENTIAL_ID, variable: 'ENV_FILE')]) {
+                    // 开头的 #! 不能省：Jenkins 遇到没有 shebang 的脚本，会用 "sh -xe" 执行，
+                    // -x 会把每条命令展开后的内容打印到日志，口令就全泄露了。
+                    // 这里只报告"缺哪一项 / 哪一项格式不对"，绝不输出任何密钥的值。
+                    sh '''#!/bin/bash
+                        set -u
+                        bad=0
+                        eval "$(bash deploy/export-blog-env.sh "$ENV_FILE")"
 
-                    bcrypt_re='^[$]2[aby][$][0-9]{2}[$].{53}$'
-                    if [ "${#BLOG_JWT_SECRET}" -lt 32 ]; then
-                        echo "BLOG_JWT_SECRET 太短：至少需要 32 个字符"; bad=1
-                    fi
-                    if ! [[ "$BLOG_ADMIN_PASSWORD_HASH" =~ $bcrypt_re ]]; then
-                        echo "BLOG_ADMIN_PASSWORD_HASH 不是 BCrypt 哈希：应以 \\$2a\\$ / \\$2b\\$ / \\$2y\\$ 开头、共 60 个字符。"
-                        echo "常见原因：粘贴时丢了开头的 \\$ 符号，或者填成了明文口令。"
-                        bad=1
-                    fi
-                    if ! [[ "$BLOG_API_PORT" =~ ^[0-9]{2,5}$ ]]; then
-                        echo "BLOG_API_PORT 必须是数字端口"; bad=1
-                    fi
-                    [ "$bad" = 0 ] && echo "参数校验通过（未输出任何参数的值）"
-                    exit "$bad"
-                '''
+                        for name in BLOG_DB_ROOT_PASSWORD BLOG_DB_PASSWORD BLOG_JWT_SECRET BLOG_ADMIN_USERNAME BLOG_ADMIN_PASSWORD_HASH; do
+                            if [ -z "${!name:-}" ]; then
+                                echo "凭据文件 $BLOG_ENV_CREDENTIAL_ID 缺少: $name"
+                                bad=1
+                            fi
+                        done
+                        if [ "$bad" = 1 ]; then
+                            echo "请在 Jenkins → Credentials 里编辑 Secret file「$BLOG_ENV_CREDENTIAL_ID」，格式见仓库 .env.example。"
+                            exit 1
+                        fi
+
+                        bcrypt_re='^[$]2[aby][$][0-9]{2}[$].{53}$'
+                        if [ "${#BLOG_JWT_SECRET}" -lt 32 ]; then
+                            echo "BLOG_JWT_SECRET 太短：至少需要 32 个字符"; bad=1
+                        fi
+                        if ! [[ "$BLOG_ADMIN_PASSWORD_HASH" =~ $bcrypt_re ]]; then
+                            echo "BLOG_ADMIN_PASSWORD_HASH 不是 BCrypt 哈希：应以 \\$2a\\$ / \\$2b\\$ / \\$2y\\$ 开头、共 60 个字符。"
+                            echo "常见原因：粘贴时丢了开头的 \\$ 符号，或填成了明文口令。"
+                            bad=1
+                        fi
+                        if ! [[ "${BLOG_API_PORT}" =~ ^[0-9]{2,5}$ ]]; then
+                            echo "BLOG_API_PORT 必须是数字端口"; bad=1
+                        fi
+                        [ "$bad" = 0 ] && echo "凭据校验通过（未输出任何密钥的值）"
+                        exit "$bad"
+                    '''
+                }
             }
         }
 
         stage('Test') {
             when { expression { params.RUN_TESTS } }
             steps {
-                // env -u：把这 5 个变量从测试进程里拿掉。
-                // 它们是给【部署】用的真实配置，但 Spring 的环境变量优先级高于 application-test.yml：
-                // 不清掉的话，集成测试会拿真实的管理员哈希去验证测试口令，登录相关的用例必然失败。
-                // 不能改成设为空字符串：空值同样会覆盖 yml，并触发配置校验失败。
+                // 本 stage 故意不加载 blog-env：生产口令一旦进进程，
+                // Spring 环境变量优先级高于 application-test.yml，登录相关用例会失败。
                 sh '''
                     # Jenkins 服务进程的 PATH / JAVA_HOME 和登录 shell 不是同一套。
                     # 本机曾出现：登录用户 javac 是 17，服务进程却用了不支持 --release 17 的 javac。
@@ -108,9 +101,7 @@ pipeline {
                     echo "JAVA_HOME=$JAVA_HOME"
                     command -v java; java -version
                     command -v javac; javac -version
-                    env -u BLOG_ADMIN_USERNAME -u BLOG_ADMIN_PASSWORD_HASH -u BLOG_JWT_SECRET \
-                        -u BLOG_DB_PASSWORD -u BLOG_DB_ROOT_PASSWORD \
-                        ./mvnw -B test
+                    ./mvnw -B test
                 '''
             }
             post {
@@ -120,16 +111,31 @@ pipeline {
 
         stage('Build image') {
             steps {
-                // 只构建 blog-api；镜像带构建号标签，失败时可以手动回滚到上一个版本
-                sh 'docker compose build blog-api'
+                // compose 在解析整份 yml 时就会展开 ${VAR:?}，缺变量会在「构建」阶段就失败，
+                // 即便镜像构建本身用不到口令。这里只注入环境、不启动容器，也不会把密钥写进镜像层
+                // （Dockerfile 没有 build-arg 引用这些变量）。
+                withCredentials([file(credentialsId: env.BLOG_ENV_CREDENTIAL_ID, variable: 'ENV_FILE')]) {
+                    sh '''#!/bin/bash
+                        set -eu
+                        eval "$(bash deploy/export-blog-env.sh "$ENV_FILE")"
+                        docker compose build blog-api
+                    '''
+                }
             }
         }
 
         stage('Deploy') {
             steps {
-                // 密钥经环境变量传给 compose，不出现在命令行里，日志中看不到它们。
-                // MySQL 容器只要配置没变就不会重建，数据卷保持不动；仅 blog-api 会换新镜像。
-                sh 'docker compose up -d --remove-orphans'
+                withCredentials([file(credentialsId: env.BLOG_ENV_CREDENTIAL_ID, variable: 'ENV_FILE')]) {
+                    // 解析后的值进进程环境，compose 从环境做插值，不依赖 --env-file 对 $ 的二次展开。
+                    // BLOG_API_PORT / IMAGE_TAG 来自 Jenkins，shell 变量优先于凭据文件。
+                    // MySQL 容器只要配置没变就不会重建，数据卷保持不动；仅 blog-api 会换新镜像。
+                    sh '''#!/bin/bash
+                        set -eu
+                        eval "$(bash deploy/export-blog-env.sh "$ENV_FILE")"
+                        docker compose up -d --remove-orphans
+                    '''
+                }
             }
         }
 
@@ -164,6 +170,6 @@ pipeline {
     }
 
     post {
-        failure { echo '构建失败。若已经部署过，上一个版本的镜像仍保留在本机，可用 IMAGE_TAG=<旧构建号> docker compose up -d blog-api 回滚。' }
+        failure { echo '构建失败。若已经部署过，上一个版本的镜像仍保留在本机，可用 IMAGE_TAG=<旧构建号> docker compose up -d blog-api 回滚（需已导出 blog-env 里的变量）。' }
     }
 }
