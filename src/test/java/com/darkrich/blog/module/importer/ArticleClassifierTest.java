@@ -36,8 +36,15 @@ class ArticleClassifierTest {
     }
 
     @Test
-    void classifiesDevopsAndBeginnerLevel() {
-        Suggestion s = ArticleClassifier.classify("Docker 入门教程", List.of(), "正文");
+    void classifiesGitAsDevops() {
+        Suggestion s = ArticleClassifier.classify("掌握 Git 分支整合", List.of("Git"), "正文");
+
+        assertEquals(ArticleClassifier.DEVOPS, s.categoryCode());
+    }
+
+    @Test
+    void githubDoesNotMatchInsideJavascript() {
+        Suggestion s = ArticleClassifier.classify("GitHub Actions 入门", List.of(), "正文");
 
         assertEquals(ArticleClassifier.DEVOPS, s.categoryCode());
         assertEquals(ArticleLevel.BEGINNER, s.level());

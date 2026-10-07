@@ -54,7 +54,8 @@ public final class ArticleClassifier {
         register(DATABASE, "mysql", "postgresql", "postgres", "redis", "mongodb", "elasticsearch", "clickhouse",
                 "oracle", "sqlite", "sql", "数据库", "索引", "事务", "分库分表", "慢查询");
         register(DEVOPS, "docker", "kubernetes", "k8s", "nginx", "jenkins", "ci/cd", "linux", "devops", "ansible",
-                "terraform", "prometheus", "grafana", "helm", "gitlab", "github actions", "运维", "部署", "监控", "容器");
+                "terraform", "prometheus", "grafana", "helm", "gitlab", "github actions", "github", "git",
+                "运维", "部署", "监控", "容器");
         register(MOBILE, "android", "ios", "flutter", "swift", "swiftui", "kotlin", "jetpack", "react native",
                 "react-native", "objective-c", "uniapp", "uni-app", "harmonyos", "鸿蒙", "移动端");
     }

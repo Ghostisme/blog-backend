@@ -45,7 +45,9 @@ public class ImportService {
      */
     private static final Map<String, String> CATEGORY_ALIASES = Map.of(
             "android", ArticleClassifier.MOBILE,
-            "ios", ArticleClassifier.MOBILE);
+            "ios", ArticleClassifier.MOBILE,
+            "git", ArticleClassifier.DEVOPS,
+            "github", ArticleClassifier.DEVOPS);
 
     private final AdminArticleService articleService;
     private final CategoryService categoryService;

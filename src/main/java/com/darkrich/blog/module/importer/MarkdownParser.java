@@ -48,6 +48,12 @@ public final class MarkdownParser {
     private static final Pattern HTTP_URL = Pattern.compile("^https?://\\S+$", Pattern.CASE_INSENSITIVE);
     private static final Pattern STRUCTURAL_LIST = Pattern.compile("^([-*+]|\\d+[.)])\\s.*");
     private static final Pattern HORIZONTAL_RULE = Pattern.compile("^(-{3,}|\\*{3,}|_{3,})$");
+    /**
+     * 掘金网页拷贝常见第二行：日期和阅读量粘在一起，例如 {@code 2024-01-161,990阅读20分钟}。
+     * 要求同时出现日期和「阅读/分钟」，避免把正文里普通的日期行当成元数据。
+     */
+    private static final Pattern JUEJIN_STATS = Pattern.compile("^\\d{4}-\\d{2}-\\d{2}.*(?:阅读|分钟|点赞).*$");
+    private static final Pattern JUEJIN_COLUMN_LABEL = Pattern.compile("^专栏[：:].*$");
 
     private static final int MAX_TITLE = 255;
     private static final int MAX_SUMMARY = 160;
@@ -79,6 +85,21 @@ public final class MarkdownParser {
         }
 
         String title = firstString(meta, TITLE_KEYS);
+        String categoryHint = firstString(meta, CATEGORY_KEYS);
+        List<String> extraTags = new ArrayList<>();
+        // 掘金网页拷贝没有 front-matter，第一行就是标题，后面跟着日期/专栏。必须在找 H1 之前处理，
+        // 否则标题会退化成文件名，专栏信息也会留在正文开头。
+        JuejinHeader juejin = detectJuejinHeader(body);
+        if (juejin != null) {
+            if (title == null) {
+                title = juejin.title();
+            }
+            body = juejin.body();
+            if (categoryHint == null) {
+                categoryHint = juejin.columnHint();
+            }
+            extraTags.addAll(juejin.tags());
+        }
         String[] lines = body.split("\n", -1);
         int firstNonBlank = firstNonBlankLine(lines);
         Heading h1 = findFirstH1(lines);
@@ -102,8 +123,14 @@ public final class MarkdownParser {
         String summary = firstString(meta, SUMMARY_KEYS);
         summary = summary != null ? TextUtil.truncate(clean(summary), MAX_SUMMARY, "…") : summarize(content);
 
-        return new ParsedArticle(title, summary, content, tags(meta),
-                firstString(meta, CATEGORY_KEYS),
+        List<String> tags = tags(meta);
+        for (String tag : extraTags) {
+            if (!tags.contains(tag)) {
+                tags.add(tag);
+            }
+        }
+        return new ParsedArticle(title, summary, content, tags,
+                categoryHint,
                 httpUrl(firstString(meta, SOURCE_URL_KEYS)),
                 TextUtil.truncate(firstString(meta, AUTHOR_KEYS), 128, ""),
                 httpUrl(firstString(meta, COVER_KEYS)));
@@ -249,6 +276,95 @@ public final class MarkdownParser {
 
     private static String stripExtension(String fileName) {
         return fileName.replaceFirst("(?i)\\.(md|markdown)$", "");
+    }
+
+    /**
+     * 识别掘金网页拷贝的页眉。判定条件必须同时满足：第一行不像 Markdown 标题，
+     * 且随后几行里出现日期阅读量或「专栏：」。只凭第一行像标题就当掘金格式，
+     * 会把普通 Markdown 的开篇段落误当成标题。
+     */
+    private static JuejinHeader detectJuejinHeader(String body) {
+        String[] lines = body.split("\n", -1);
+        int i = 0;
+        while (i < lines.length && lines[i].isBlank()) {
+            i++;
+        }
+        if (i >= lines.length) {
+            return null;
+        }
+        String maybeTitle = lines[i].strip();
+        if (maybeTitle.startsWith("#") || maybeTitle.startsWith("---") || maybeTitle.length() > MAX_TITLE) {
+            return null;
+        }
+        int j = i + 1;
+        boolean sawMeta = false;
+        String columnLine = null;
+        int scanned = 0;
+        while (j < lines.length && scanned < 6) {
+            String line = lines[j].strip();
+            if (line.isEmpty()) {
+                j++;
+                continue;
+            }
+            scanned++;
+            if (JUEJIN_STATS.matcher(line).matches()) {
+                sawMeta = true;
+                j++;
+                continue;
+            }
+            if (JUEJIN_COLUMN_LABEL.matcher(line).matches()) {
+                sawMeta = true;
+                String after = line.replaceFirst("^专栏[：:]\\s*", "").strip();
+                j++;
+                if (after.isEmpty()) {
+                    while (j < lines.length && lines[j].isBlank()) {
+                        j++;
+                    }
+                    if (j < lines.length) {
+                        after = lines[j].strip();
+                        j++;
+                    }
+                }
+                columnLine = after.isEmpty() ? null : after;
+                continue;
+            }
+            break;
+        }
+        if (!sawMeta) {
+            return null;
+        }
+        List<String> rest = new ArrayList<>();
+        for (int k = j; k < lines.length; k++) {
+            rest.add(lines[k]);
+        }
+        return new JuejinHeader(maybeTitle, columnHint(columnLine), columnTags(columnLine), String.join("\n", rest));
+    }
+
+    /** 专栏名取最后一段：{@code 学习笔记｜Git} → {@code Git}，方便对上领域编码或中文名。 */
+    private static String columnHint(String column) {
+        if (column == null || column.isBlank()) {
+            return null;
+        }
+        String[] parts = column.split("[｜|]");
+        String last = parts[parts.length - 1].strip();
+        return last.isEmpty() ? null : last;
+    }
+
+    private static List<String> columnTags(String column) {
+        if (column == null || column.isBlank()) {
+            return List.of();
+        }
+        List<String> tags = new ArrayList<>();
+        for (String part : column.split("[｜|]")) {
+            String tag = part.strip();
+            if (!tag.isEmpty() && tag.length() <= 64) {
+                tags.add(tag);
+            }
+        }
+        return tags;
+    }
+
+    private record JuejinHeader(String title, String columnHint, List<String> tags, String body) {
     }
 
     // ------------------------------------------------------------------ 摘要

@@ -125,4 +125,36 @@ class MarkdownParserTest {
     void emptyBodyIsRejected() {
         assertThrows(BusinessException.class, () -> MarkdownParser.parse("x.md", "---\ntitle: 只有头\n---\n   \n"));
     }
+
+    @Test
+    void parsesJuejinWebCopyHeader() {
+        // 掘金网页拷贝：第一行是标题，第二行日期阅读量粘在一起，接着是专栏。
+        // 不能把这种格式当成普通正文，否则标题会退化成文件名。
+        String raw = """
+                掌握 Git 分支整合：Merge、Rebase 与 Cherry-pick 的对比与实践
+                2024-01-161,990阅读20分钟
+                专栏：
+                学习笔记｜Git
+                分支整合，简而言之就是整合来自不同分支的修改，这是一种特别常见的操作，尤其是在多人协作解决不同开发任务的情境之下。
+
+                ## 1. Merge
+                """;
+        ParsedArticle a = MarkdownParser.parse("git.md", raw);
+
+        assertEquals("掌握 Git 分支整合：Merge、Rebase 与 Cherry-pick 的对比与实践", a.title());
+        assertEquals("Git", a.categoryHint());
+        assertEquals(java.util.List.of("学习笔记", "Git"), a.tags());
+        assertTrue(a.summary().contains("分支整合"));
+        assertFalse(a.content().contains("专栏"), "页眉应被剥掉");
+        assertFalse(a.content().contains("1990阅读"));
+        assertTrue(a.content().startsWith("分支整合"));
+    }
+
+    @Test
+    void ordinaryOpeningParagraphIsNotTreatedAsJuejinHeader() {
+        ParsedArticle a = MarkdownParser.parse("x.md", "今天天气不错，适合写一篇足够长的开篇段落来当摘要使用。\n\n# 真正的标题\n");
+
+        assertEquals("真正的标题", a.title());
+        assertNull(a.categoryHint());
+    }
 }
