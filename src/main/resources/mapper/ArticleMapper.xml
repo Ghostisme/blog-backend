@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.darkrich.blog.module.article.ArticleMapper">
+
+    <!-- 列表查询的列：有意不包含 content（LONGTEXT），见 ArticleMapper.searchPage 的说明 -->
+    <sql id="listColumns">
+        a.id, a.slug, a.title, a.summary, a.level, a.category_id, a.status,
+        a.source_url, a.source_author, a.cover_url, a.view_count, a.word_count,
+        a.published_at, a.created_at, a.updated_at
+    </sql>
+
+    <select id="searchPage" resultType="com.darkrich.blog.module.article.Article">
+        SELECT <include refid="listColumns"/>
+        FROM article a
+        <where>
+            <if test="f.status != null">
+                AND a.status = #{f.status}
+            </if>
+            <if test="f.level != null">
+                AND a.level = #{f.level}
+            </if>
+            <if test="f.categoryId != null">
+                AND a.category_id = #{f.categoryId}
+            </if>
+            <if test="f.tagId != null">
+                AND EXISTS (SELECT 1 FROM article_tag atg WHERE atg.article_id = a.id AND atg.tag_id = #{f.tagId})
+            </if>
+            <!-- MATCH 的列顺序必须与 ft_article_search 索引定义 (title, summary, content) 完全一致 -->
+            <if test="f.ftsExpr != null">
+                AND MATCH(a.title, a.summary, a.content) AGAINST (#{f.ftsExpr} IN BOOLEAN MODE)
+            </if>
+            <!-- 短词只在标题和摘要里模糊匹配；不扫正文，避免对 LONGTEXT 做全表 LIKE -->
+            <foreach collection="f.likePatterns" item="p">
+                AND (a.title LIKE #{p} OR a.summary LIKE #{p})
+            </foreach>
+        </where>
+        <!-- 排序按枚举分支写死，不使用 ${}：杜绝把用户输入拼进 ORDER BY -->
+        <choose>
+            <when test="f.sort != null and f.sort.name() == 'HOT'">
+                ORDER BY a.view_count DESC, a.id DESC
+            </when>
+            <when test="f.sort != null and f.sort.name() == 'UPDATED'">
+                ORDER BY a.updated_at DESC, a.id DESC
+            </when>
+            <otherwise>
+                ORDER BY a.published_at DESC, a.id DESC
+            </otherwise>
+        </choose>
+    </select>
+</mapper>
