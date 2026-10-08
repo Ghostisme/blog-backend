@@ -30,6 +30,7 @@ public class AdminArticleController {
 
     private final AdminArticleService service;
     private final ImportService importService;
+    private final ArticleTranslationService translationService;
 
     @GetMapping
     public ApiResponse<PageResult<ArticleListItem>> list(AdminArticleQuery query) {
@@ -79,5 +80,11 @@ public class AdminArticleController {
     @PostMapping("/import-urls")
     public ApiResponse<ImportResult> importUrls(@Valid @RequestBody ImportUrlsRequest req) {
         return ApiResponse.ok(importService.importUrls(req.urls()));
+    }
+
+    /** Queue missing/outdated English versions for existing articles; safe to repeat. */
+    @PostMapping("/translations/backfill")
+    public ApiResponse<TranslationBatchResult> backfillTranslations() {
+        return ApiResponse.ok(translationService.backfill());
     }
 }

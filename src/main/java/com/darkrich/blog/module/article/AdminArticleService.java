@@ -29,11 +29,12 @@ public class AdminArticleService {
     private final ArticleAssembler assembler;
     private final CategoryService categoryService;
     private final TagService tagService;
+    private final ArticleTranslationService translationService;
 
     public PageResult<ArticleListItem> list(AdminArticleQuery q) {
         KeywordParser.Parsed kw = KeywordParser.parse(q.keyword());
         ArticleFilter filter = new ArticleFilter(q.status(), q.level(), q.categoryId(), null,
-                kw.ftsExpr(), kw.likePatterns(), q.sort());
+                kw.ftsExpr(), kw.likePatterns(), q.sort(), false);
         IPage<Article> page = mapper.searchPage(new Page<>(q.page(), q.size()), filter);
         return PageResult.of(page, assembler.toListItems(page.getRecords()));
     }
@@ -52,6 +53,7 @@ public class AdminArticleService {
         Article article = new Article();
         apply(article, req, true);
         mapper.insert(article); // slug 冲突抛 DuplicateKeyException → 409
+        translationService.enqueueFor(article.getId());
         tagService.replaceArticleTags(article.getId(), tagsOf(req));
         // 重新读取：created_at / updated_at / view_count 由数据库默认值生成，内存里的对象还没有
         return assembler.toEditView(mapper.selectById(article.getId()));
@@ -62,6 +64,7 @@ public class AdminArticleService {
         Article article = require(id);
         apply(article, req, false);
         mapper.updateById(article);
+        translationService.enqueueFor(article.getId());
         tagService.replaceArticleTags(id, tagsOf(req));
         return assembler.toEditView(mapper.selectById(id));
     }

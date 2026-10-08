@@ -30,7 +30,14 @@ public record BlogProperties(
         @Valid @NotNull Admin admin,
         @Valid @NotNull Jwt jwt,
         @Valid @NotNull Cookie cookie,
-        @Valid @DefaultValue Login login) {
+        @Valid @DefaultValue Login login,
+        @Valid @DefaultValue Translation translation) {
+
+    /** Backward-compatible constructor for focused unit tests and small integrations. */
+    public BlogProperties(Admin admin, Jwt jwt, Cookie cookie, Login login) {
+        this(admin, jwt, cookie, login,
+                new Translation(false, "https://api.openai.com/v1", "", "gpt-4o-mini", 2));
+    }
 
     /**
      * @param username     管理员用户名
@@ -68,5 +75,18 @@ public record BlogProperties(
     public record Login(
             @Min(1) @Max(100) @DefaultValue("5") int maxFailures,
             @NotNull @DefaultValue("15m") Duration window) {
+    }
+
+    /**
+     * OpenAI-compatible translation provider. Disabled by default so a local or
+     * existing production deployment never starts making paid outbound calls
+     * until the operator explicitly enables it.
+     */
+    public record Translation(
+            @DefaultValue("false") boolean enabled,
+            @NotBlank @DefaultValue("https://api.openai.com/v1") String baseUrl,
+            @DefaultValue("") String apiKey,
+            @NotBlank @DefaultValue("gpt-4o-mini") String model,
+            @Min(1) @Max(10) @DefaultValue("2") int batchSize) {
     }
 }

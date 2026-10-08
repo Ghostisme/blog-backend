@@ -9,7 +9,7 @@ import com.darkrich.blog.common.TextUtil;
  * 对公开的只读接口来说，size=9999 或 page=-1 没必要报错，按上限/下限处理对调用方更友好。
  */
 public record ArticleQuery(Integer page, Integer size, ArticleLevel level, Long categoryId, Long tagId,
-                           String keyword, ArticleSort sort) {
+                           String keyword, ArticleSort sort, String lang) {
 
     private static final int DEFAULT_SIZE = 12;
     private static final int MAX_SIZE = 50;
@@ -21,5 +21,6 @@ public record ArticleQuery(Integer page, Integer size, ArticleLevel level, Long 
         keyword = TextUtil.truncate(TextUtil.blankToNull(keyword), MAX_KEYWORD_LENGTH, "");
         // UPDATED 仅后台有意义（按修改时间排），前台不开放
         sort = (sort == null || sort == ArticleSort.UPDATED) ? ArticleSort.LATEST : sort;
+        lang = ArticleLanguage.from(lang).code();
     }
 }

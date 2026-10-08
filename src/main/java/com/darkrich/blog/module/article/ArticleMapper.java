@@ -28,29 +28,56 @@ public interface ArticleMapper extends BaseMapper<Article> {
     @Update("UPDATE article SET view_count = view_count + 1 WHERE id = #{id}")
     int incrementViewCount(@Param("id") Long id);
 
+    /** Update generated English fields only if the original Chinese version is still the one translated. */
+    @Update("""
+            UPDATE article
+            SET title_en = #{titleEn}, summary_en = #{summaryEn}, content_en = #{contentEn},
+                translation_status = 'COMPLETED', translation_source_hash = #{sourceHash},
+                translation_error = NULL, translated_at = NOW()
+            WHERE id = #{id}
+              AND translation_locked = 0
+            AND SHA2(CONCAT(COALESCE(title, ''), CHAR(10), COALESCE(summary, ''), CHAR(10), COALESCE(content, '')), 256)
+                    = #{sourceHash}
+            """)
+    int saveEnglishIfSourceMatches(@Param("id") Long id, @Param("sourceHash") String sourceHash,
+                                   @Param("titleEn") String titleEn, @Param("summaryEn") String summaryEn,
+                                   @Param("contentEn") String contentEn);
+
     /**
      * 比当前文章更早发布的最近一篇。
      * 以 (published_at, id) 二元组比较，而不是只比时间：批量发布时多篇文章的发布时间可能相同，
      * 只比时间会让上下篇导航漏文章或死循环。
      */
     @Select("""
-            SELECT id, slug, title FROM article
+            SELECT id, slug,
+                   CASE WHEN #{english} = TRUE AND translation_status = 'COMPLETED'
+                              AND title_en IS NOT NULL AND title_en <> ''
+                              AND content_en IS NOT NULL AND content_en <> ''
+                        THEN title_en ELSE title END AS title
+            FROM article
             WHERE status = 'PUBLISHED'
               AND (published_at < #{publishedAt} OR (published_at = #{publishedAt} AND id < #{id}))
             ORDER BY published_at DESC, id DESC
             LIMIT 1
             """)
-    Article selectOlder(@Param("id") Long id, @Param("publishedAt") LocalDateTime publishedAt);
+    Article selectOlder(@Param("id") Long id, @Param("publishedAt") LocalDateTime publishedAt,
+                        @Param("english") boolean english);
 
     /** 比当前文章更晚发布的最近一篇，比较规则同 {@link #selectOlder}。 */
     @Select("""
-            SELECT id, slug, title FROM article
+            SELECT id, slug,
+                   CASE WHEN #{english} = TRUE AND translation_status = 'COMPLETED'
+                              AND title_en IS NOT NULL AND title_en <> ''
+                              AND content_en IS NOT NULL AND content_en <> ''
+                        THEN title_en ELSE title END AS title
+            FROM article
             WHERE status = 'PUBLISHED'
               AND (published_at > #{publishedAt} OR (published_at = #{publishedAt} AND id > #{id}))
             ORDER BY published_at ASC, id ASC
             LIMIT 1
             """)
-    Article selectNewer(@Param("id") Long id, @Param("publishedAt") LocalDateTime publishedAt);
+    Article selectNewer(@Param("id") Long id, @Param("publishedAt") LocalDateTime publishedAt,
+                        @Param("english") boolean english);
 
     @Select("SELECT level, COUNT(*) AS count FROM article WHERE status = 'PUBLISHED' GROUP BY level")
     List<LevelCount> countPublishedByLevel();

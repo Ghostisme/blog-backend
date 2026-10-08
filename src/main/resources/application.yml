@@ -53,3 +53,9 @@ blog:
     name: blog_token
     # 线上全站 HTTPS，必须为 true；仅 dev profile 关闭（本地 http://localhost）
     secure: true
+  translation:
+    enabled: ${BLOG_TRANSLATION_ENABLED:false}
+    base-url: ${BLOG_TRANSLATION_BASE_URL:https://api.openai.com/v1}
+    api-key: ${BLOG_TRANSLATION_API_KEY:}
+    model: ${BLOG_TRANSLATION_MODEL:gpt-4o-mini}
+    batch-size: ${BLOG_TRANSLATION_BATCH_SIZE:2}

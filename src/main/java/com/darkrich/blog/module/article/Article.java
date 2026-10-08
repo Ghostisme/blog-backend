@@ -32,10 +32,39 @@ public class Article {
 
     private String title;
 
+    /** Automatically generated English title; the existing title remains the source Chinese title. */
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private String titleEn;
+
     @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String summary;
 
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private String summaryEn;
+
     private String content;
+
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private String contentEn;
+
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private TranslationStatus translationStatus;
+
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private String translationSourceHash;
+
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private String translationError;
+
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private LocalDateTime translatedAt;
+
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private Boolean translationLocked;
+
+    /** Lightweight projection for list queries; never loads the English LONGTEXT body. */
+    @TableField(exist = false)
+    private Boolean hasEnglishTranslation;
 
     private ArticleLevel level;
 

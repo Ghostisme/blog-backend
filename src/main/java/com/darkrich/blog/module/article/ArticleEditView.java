@@ -13,5 +13,8 @@ public record ArticleEditView(Long id, String slug, String title, String summary
                               ArticleLevel level, Long categoryId, ArticleStatus status, List<String> tags,
                               String sourceUrl, String sourceAuthor, String coverUrl,
                               long viewCount, LocalDateTime publishedAt,
-                              LocalDateTime createdAt, LocalDateTime updatedAt) {
+                              LocalDateTime createdAt, LocalDateTime updatedAt,
+                              String titleEn, String summaryEn, String contentEn,
+                              TranslationStatus translationStatus, LocalDateTime translatedAt,
+                              String translationError) {
 }

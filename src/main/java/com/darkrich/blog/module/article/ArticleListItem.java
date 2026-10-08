@@ -15,5 +15,6 @@ import java.util.List;
 public record ArticleListItem(Long id, String slug, String title, String summary, ArticleLevel level,
                               CategoryBrief category, List<TagBrief> tags, String coverUrl,
                               long viewCount, int readingMinutes, ArticleStatus status,
-                              LocalDateTime publishedAt, LocalDateTime updatedAt) {
+                              LocalDateTime publishedAt, LocalDateTime updatedAt,
+                              String contentLanguage, TranslationStatus translationStatus) {
 }

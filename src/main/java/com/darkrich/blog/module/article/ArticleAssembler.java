@@ -28,6 +28,10 @@ public class ArticleAssembler {
     private final TagService tagService;
 
     public List<ArticleListItem> toListItems(List<Article> articles) {
+        return toListItems(articles, ArticleLanguage.ZH);
+    }
+
+    public List<ArticleListItem> toListItems(List<Article> articles, ArticleLanguage language) {
         if (articles.isEmpty()) {
             return List.of();
         }
@@ -37,25 +41,27 @@ public class ArticleAssembler {
                 articles.stream().map(Article::getId).toList());
 
         return articles.stream().map(a -> new ArticleListItem(
-                a.getId(), a.getSlug(), a.getTitle(), a.getSummary(), a.getLevel(),
+                a.getId(), a.getSlug(), title(a, language), summary(a, language), a.getLevel(),
                 // categoryId 可能为 null（草稿未分类）；不能对 null 调用 Map.get，不可变 Map 会抛 NPE
                 a.getCategoryId() == null ? null : categories.get(a.getCategoryId()),
                 tags.getOrDefault(a.getId(), List.of()),
                 a.getCoverUrl(), nz(a.getViewCount()), readingMinutes(a.getWordCount()),
-                a.getStatus(), a.getPublishedAt(), a.getUpdatedAt())).toList();
+                a.getStatus(), a.getPublishedAt(), a.getUpdatedAt(),
+                language.isEnglish() && hasEnglish(a) ? "en" : "zh", a.getTranslationStatus())).toList();
     }
 
-    public ArticleDetail toDetail(Article a, Article older, Article newer) {
+    public ArticleDetail toDetail(Article a, Article older, Article newer, ArticleLanguage language) {
         Map<Long, CategoryBrief> categories = a.getCategoryId() == null
                 ? Map.of() : categoryService.briefsByIds(List.of(a.getCategoryId()));
         List<TagBrief> tags = tagService.briefsByArticleIds(List.of(a.getId())).getOrDefault(a.getId(), List.of());
         return new ArticleDetail(
-                a.getId(), a.getSlug(), a.getTitle(), a.getSummary(), a.getContent(), a.getLevel(),
+                a.getId(), a.getSlug(), title(a, language), summary(a, language), content(a, language), a.getLevel(),
                 a.getCategoryId() == null ? null : categories.get(a.getCategoryId()), tags,
                 a.getCoverUrl(), a.getSourceUrl(), a.getSourceAuthor(),
                 nz(a.getViewCount()), a.getWordCount() == null ? 0 : a.getWordCount(),
                 readingMinutes(a.getWordCount()), a.getPublishedAt(), a.getUpdatedAt(),
-                ArticleNav.from(older), ArticleNav.from(newer));
+                ArticleNav.from(older), ArticleNav.from(newer),
+                hasEnglish(a) && language.isEnglish() ? "en" : "zh", a.getTranslationStatus());
     }
 
     public ArticleEditView toEditView(Article a) {
@@ -64,7 +70,34 @@ public class ArticleAssembler {
         return new ArticleEditView(
                 a.getId(), a.getSlug(), a.getTitle(), a.getSummary(), a.getContent(), a.getLevel(),
                 a.getCategoryId(), a.getStatus(), tagNames, a.getSourceUrl(), a.getSourceAuthor(),
-                a.getCoverUrl(), nz(a.getViewCount()), a.getPublishedAt(), a.getCreatedAt(), a.getUpdatedAt());
+                a.getCoverUrl(), nz(a.getViewCount()), a.getPublishedAt(), a.getCreatedAt(), a.getUpdatedAt(),
+                a.getTitleEn(), a.getSummaryEn(), a.getContentEn(), a.getTranslationStatus(),
+                a.getTranslatedAt(), a.getTranslationError());
+    }
+
+    private static String title(Article a, ArticleLanguage language) {
+        return language.isEnglish() && hasEnglish(a) ? a.getTitleEn() : a.getTitle();
+    }
+
+    private static String summary(Article a, ArticleLanguage language) {
+        return language.isEnglish() && hasEnglish(a) && hasText(a.getSummaryEn())
+                ? a.getSummaryEn() : a.getSummary();
+    }
+
+    private static String content(Article a, ArticleLanguage language) {
+        return language.isEnglish() && hasEnglish(a) ? a.getContentEn() : a.getContent();
+    }
+
+    private static boolean hasEnglish(Article a) {
+        if (a.getHasEnglishTranslation() != null) {
+            return Boolean.TRUE.equals(a.getHasEnglishTranslation());
+        }
+        return a.getTranslationStatus() == TranslationStatus.COMPLETED
+                && hasText(a.getTitleEn()) && hasText(a.getContentEn());
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     private static int readingMinutes(Integer wordCount) {

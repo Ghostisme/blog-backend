@@ -29,10 +29,11 @@ public class ArticleQueryService {
     public PageResult<ArticleListItem> list(ArticleQuery q) {
         KeywordParser.Parsed kw = KeywordParser.parse(q.keyword());
         // 状态在这里写死为 PUBLISHED，而不是信任任何外部参数：前台绝不能看到草稿
+        ArticleLanguage language = ArticleLanguage.from(q.lang());
         ArticleFilter filter = new ArticleFilter(ArticleStatus.PUBLISHED, q.level(), q.categoryId(), q.tagId(),
-                kw.ftsExpr(), kw.likePatterns(), q.sort());
+                kw.ftsExpr(), kw.likePatterns(), q.sort(), language.isEnglish());
         IPage<Article> page = mapper.searchPage(new Page<>(q.page(), q.size()), filter);
-        return PageResult.of(page, assembler.toListItems(page.getRecords()));
+        return PageResult.of(page, assembler.toListItems(page.getRecords(), language));
     }
 
     /**
@@ -42,7 +43,7 @@ public class ArticleQueryService {
      * 返回值里的浏览量直接 +1 而不是重新查询，省一次往返，读者看到的也是包含自己这一次的数字。
      */
     @Transactional
-    public ArticleDetail detail(String slug) {
+    public ArticleDetail detail(String slug, ArticleLanguage language) {
         Article article = mapper.selectOne(new LambdaQueryWrapper<Article>()
                 .eq(Article::getSlug, slug)
                 .eq(Article::getStatus, ArticleStatus.PUBLISHED));
@@ -56,10 +57,10 @@ public class ArticleQueryService {
         Article newer = null;
         // 已发布文章必有发布时间（AdminArticleService 保证），这里的判空只是防御历史脏数据
         if (article.getPublishedAt() != null) {
-            older = mapper.selectOlder(article.getId(), article.getPublishedAt());
-            newer = mapper.selectNewer(article.getId(), article.getPublishedAt());
+            older = mapper.selectOlder(article.getId(), article.getPublishedAt(), language.isEnglish());
+            newer = mapper.selectNewer(article.getId(), article.getPublishedAt(), language.isEnglish());
         }
-        return assembler.toDetail(article, older, newer);
+        return assembler.toDetail(article, older, newer, language);
     }
 
     public FilterOptions filters() {

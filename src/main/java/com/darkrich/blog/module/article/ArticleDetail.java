@@ -22,5 +22,6 @@ public record ArticleDetail(Long id, String slug, String title, String summary, 
                             String coverUrl, String sourceUrl, String sourceAuthor,
                             long viewCount, int wordCount, int readingMinutes,
                             LocalDateTime publishedAt, LocalDateTime updatedAt,
-                            ArticleNav older, ArticleNav newer) {
+                            ArticleNav older, ArticleNav newer,
+                            String contentLanguage, TranslationStatus translationStatus) {
 }

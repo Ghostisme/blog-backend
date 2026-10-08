@@ -4,7 +4,18 @@
 
     <!-- 列表查询的列：有意不包含 content（LONGTEXT），见 ArticleMapper.searchPage 的说明 -->
     <sql id="listColumns">
-        a.id, a.slug, a.title, a.summary, a.level, a.category_id, a.status,
+        a.id, a.slug,
+        CASE WHEN #{f.english} = TRUE AND a.translation_status = 'COMPLETED'
+                   AND a.title_en IS NOT NULL AND a.title_en <> ''
+                   AND a.content_en IS NOT NULL AND a.content_en <> '' THEN a.title_en ELSE a.title END AS title,
+        a.title_en,
+        CASE WHEN #{f.english} = TRUE AND a.translation_status = 'COMPLETED'
+                   AND a.title_en IS NOT NULL AND a.title_en <> ''
+                   AND a.content_en IS NOT NULL AND a.content_en <> '' THEN a.summary_en ELSE a.summary END AS summary,
+        a.summary_en, a.translation_status,
+        (a.translation_status = 'COMPLETED' AND a.title_en IS NOT NULL AND a.title_en <> ''
+            AND a.content_en IS NOT NULL AND a.content_en <> '') AS has_english_translation,
+        a.level, a.category_id, a.status,
         a.source_url, a.source_author, a.cover_url, a.view_count, a.word_count,
         a.published_at, a.created_at, a.updated_at
     </sql>
@@ -25,13 +36,40 @@
             <if test="f.tagId != null">
                 AND EXISTS (SELECT 1 FROM article_tag atg WHERE atg.article_id = a.id AND atg.tag_id = #{f.tagId})
             </if>
-            <!-- MATCH 的列顺序必须与 ft_article_search 索引定义 (title, summary, content) 完全一致 -->
-            <if test="f.ftsExpr != null">
+            <!-- 中英文各自有 FULLTEXT 索引；短词只扫标题/摘要，不扫描 LONGTEXT。 -->
+            <if test="f.ftsExpr != null and f.english == false">
                 AND MATCH(a.title, a.summary, a.content) AGAINST (#{f.ftsExpr} IN BOOLEAN MODE)
             </if>
-            <!-- 短词只在标题和摘要里模糊匹配；不扫正文，避免对 LONGTEXT 做全表 LIKE -->
+            <if test="f.ftsExpr != null and f.english == true">
+                AND (
+                    (a.translation_status = 'COMPLETED'
+                        AND a.title_en IS NOT NULL AND a.title_en <> ''
+                        AND a.content_en IS NOT NULL AND a.content_en <> ''
+                        AND MATCH(a.title_en, a.summary_en, a.content_en) AGAINST (#{f.ftsExpr} IN BOOLEAN MODE))
+                    OR ((a.translation_status <> 'COMPLETED' OR a.translation_status IS NULL
+                        OR a.title_en IS NULL OR a.title_en = ''
+                        OR a.content_en IS NULL OR a.content_en = '')
+                        AND MATCH(a.title, a.summary, a.content) AGAINST (#{f.ftsExpr} IN BOOLEAN MODE))
+                )
+            </if>
             <foreach collection="f.likePatterns" item="p">
-                AND (a.title LIKE #{p} OR a.summary LIKE #{p})
+                <choose>
+                    <when test="f.english == true">
+                        AND (
+                            (a.translation_status = 'COMPLETED'
+                                AND a.title_en IS NOT NULL AND a.title_en <> ''
+                                AND a.content_en IS NOT NULL AND a.content_en <> ''
+                                AND (a.title_en LIKE #{p} OR a.summary_en LIKE #{p}))
+                            OR ((a.translation_status <> 'COMPLETED' OR a.translation_status IS NULL
+                                OR a.title_en IS NULL OR a.title_en = ''
+                                OR a.content_en IS NULL OR a.content_en = '')
+                                AND (a.title LIKE #{p} OR a.summary LIKE #{p}))
+                        )
+                    </when>
+                    <otherwise>
+                        AND (a.title LIKE #{p} OR a.summary LIKE #{p})
+                    </otherwise>
+                </choose>
             </foreach>
         </where>
         <!-- 排序按枚举分支写死，不使用 ${}：杜绝把用户输入拼进 ORDER BY -->

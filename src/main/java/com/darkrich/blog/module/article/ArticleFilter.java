@@ -14,5 +14,6 @@ import java.util.List;
  * @param likePatterns 不适合全文检索的短词（如单个字符、"c++"）各自转成的 LIKE 模式，彼此 AND
  */
 public record ArticleFilter(ArticleStatus status, ArticleLevel level, Long categoryId, Long tagId,
-                            String ftsExpr, List<String> likePatterns, ArticleSort sort) {
+                            String ftsExpr, List<String> likePatterns, ArticleSort sort,
+                            boolean english) {
 }

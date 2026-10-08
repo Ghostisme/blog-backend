@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /** 前台公开接口：文章列表、详情、筛选项。无需登录。 */
@@ -22,8 +23,9 @@ public class ArticleController {
     }
 
     @GetMapping("/articles/{slug}")
-    public ApiResponse<ArticleDetail> detail(@PathVariable String slug) {
-        return ApiResponse.ok(service.detail(slug));
+    public ApiResponse<ArticleDetail> detail(@PathVariable String slug,
+                                             @RequestParam(defaultValue = "zh") String lang) {
+        return ApiResponse.ok(service.detail(slug, ArticleLanguage.from(lang)));
     }
 
     /** 筛选栏数据（等级 / 领域 / 标签及各自文章数）。 */
