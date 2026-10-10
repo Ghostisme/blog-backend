@@ -2,6 +2,8 @@ package com.darkrich.blog.module.article;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.darkrich.blog.common.BusinessException;
+import com.darkrich.blog.config.BlogProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
@@ -23,6 +25,7 @@ public class ArticleTranslationService {
     private final ArticleMapper articleMapper;
     private final ArticleTranslationMapper jobMapper;
     private final ArticleTranslationProvider provider;
+    private final BlogProperties properties;
 
     /** Queue the current Chinese content version; repeated calls are idempotent. */
     @Transactional
@@ -89,6 +92,7 @@ public class ArticleTranslationService {
     /** Reconcile existing articles. The source columns stay untouched. */
     @Transactional
     public TranslationBatchResult backfill() {
+        requireTranslationService();
         List<Long> ids = articleMapper.selectList(new LambdaQueryWrapper<Article>()
                         .select(Article::getId).orderByAsc(Article::getId))
                 .stream().map(Article::getId).toList();
@@ -114,6 +118,21 @@ public class ArticleTranslationService {
             }
         }
         return new TranslationBatchResult(ids.size(), queued, alreadyTranslated, locked);
+    }
+
+    /**
+     * Do not report a successful queue operation when no worker can consume it.
+     * New article saves still enqueue while the service is disabled, so an
+     * operator can enable translation later and run this reconciliation again.
+     */
+    private void requireTranslationService() {
+        BlogProperties.Translation config = properties.translation();
+        if (!config.enabled()) {
+            throw BusinessException.badRequest("翻译服务未启用，请在部署参数中设置 BLOG_TRANSLATION_ENABLED=true");
+        }
+        if (config.apiKey() == null || config.apiKey().isBlank()) {
+            throw BusinessException.badRequest("翻译服务缺少 API Key，请先配置 BLOG_TRANSLATION_API_KEY");
+        }
     }
 
     /** Process a single claimed job. A failed item is retried with exponential backoff up to three times. */

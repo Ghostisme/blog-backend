@@ -74,8 +74,13 @@ docker run -d --name blog-mysql-dev -p 127.0.0.1:23306:3306 \
 | `BLOG_JWT_SECRET` | JWT 签名密钥，至少 32 字符 |
 | `BLOG_ADMIN_USERNAME` | 管理员用户名 |
 | `BLOG_ADMIN_PASSWORD_HASH` | 管理员口令的 BCrypt 哈希 |
+| `BLOG_TRANSLATION_ENABLED` | 中文转英文后台翻译开关，填 `true` 才会消费翻译任务 |
+| `BLOG_TRANSLATION_BASE_URL` | OpenAI 兼容接口地址，例如 `https://api.openai.com/v1` |
+| `BLOG_TRANSLATION_API_KEY` | 翻译服务 API Key；启用翻译时必填 |
+| `BLOG_TRANSLATION_MODEL` | 翻译模型，例如 `gpt-4o-mini` |
+| `BLOG_TRANSLATION_BATCH_SIZE` | 每轮最多处理任务数，范围 `1-10` |
 
-以上均无默认值，缺任何一项应用都会启动失败。生成管理员哈希（口令从标准输入读取，不留在命令历史里）：
+前五项为必填配置，缺任何一项应用都会启动失败；翻译五项有安全默认值，只有启用翻译时才需要配置 API Key。生成管理员哈希（口令从标准输入读取，不留在命令历史里）：
 
 ```bash
 read -rsp '口令: ' P; echo; printf '%s' "$P" | docker run --rm -i httpd:2.4-alpine htpasswd -niBC 10 x | cut -d: -f2; unset P
@@ -84,7 +89,7 @@ read -rsp '口令: ' P; echo; printf '%s' "$P" | docker run --rm -i httpd:2.4-al
 ### 用 Jenkins 部署
 
 1. 新建流水线任务指向本仓库，使用根目录的 `Jenkinsfile`。构建节点需要 JDK 17+ 与 Docker，且就是目标 VPS（或能访问其 Docker）。
-2. **第一次**用 `Build with Parameters`，把数据库口令 / JWT / 管理员用户名和哈希填全。流水线会写到 Jenkins 服务器 `/var/lib/jenkins/blog.env`（权限 600）。**之后点 Build Now，这些框留空就会用已保存的值**，不必再填，也不用去 Credentials 页上传文件。想换口令时再填一次即可覆盖。
+2. **第一次**用 `Build with Parameters`，把数据库口令 / JWT / 管理员用户名和哈希填全；如果要使用文章中文转英文，再把 `BLOG_TRANSLATION_ENABLED=true`、翻译 API Key 及模型配置填好。流水线会写到 Jenkins 服务器 `/var/lib/jenkins/blog.env`（权限 600）。**之后点 Build Now，这些框留空就会用已保存的值**，不必再填，也不用去 Credentials 页上传文件。想换口令或翻译配置时再填一次即可覆盖。
 3. 非机密参数都有默认值，平时不用改：
 
 | 参数 | 说明 |
@@ -93,6 +98,7 @@ read -rsp '口令: ' P; echo; printf '%s' "$P" | docker run --rm -i httpd:2.4-al
 | `RUN_TESTS` | 默认开启。VPS 内存紧张时可关掉（集成测试会临时起 MySQL 容器） |
 | `JDK_HOME` | 编译用的 JDK 目录，默认 `/usr/lib/jvm/java-17-openjdk-amd64` |
 | 密钥五项 | 第一次必填；之后留空 = 用服务器上已保存的值 |
+| 翻译配置五项 | 按需启用；第一次启用时填写，之后留空 = 用服务器上已保存的值 |
 
 MySQL 口令只在数据卷首次初始化时生效。之后改已保存的文件不会改数据库里的口令，只会让 API 连不上。若之前漏填口令已经把空库初始化坏了、且库里没有要保留的数据，先停掉再删卷再部署：
 

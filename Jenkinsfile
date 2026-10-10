@@ -16,6 +16,10 @@
 //   MySQL 的两个口令只在数据卷【首次初始化】时生效。之后改保存的文件不会改变数据库里的口令，
 //   只会让 API 连不上（容器 unhealthy）。要换口令必须先处理数据卷。
 //
+//   翻译配置也会保存到同一个文件。第一次启用时把 BLOG_TRANSLATION_ENABLED=true、
+//   API 地址、模型和 API Key 填入；以后留空沿用已保存的值。翻译开关为 false 时，
+//   文章仍会入队，但后台不会调用外部翻译服务。
+//
 // 对 VPS 上其它容器的影响：
 //   只操作 compose 项目 "blog" 下的 blog-api / blog-mysql，以及带 blog-backend 名字的镜像；
 //   不执行任何全局 prune。
@@ -48,6 +52,19 @@ pipeline {
                description: '管理员用户名。第一次必填；之后留空沿用已保存的值')
         password(name: 'BLOG_ADMIN_PASSWORD_HASH', defaultValue: '',
                  description: '管理员口令的 BCrypt 哈希，以 $2a$ / $2b$ / $2y$ 开头，共 60 个字符。第一次必填；之后留空沿用')
+
+        // 翻译配置第一次按需填写；之后留空沿用服务器上已保存的值。
+        // enabled 使用 string 而不是 booleanParam，这样 Build Now 的默认空值不会把已启用配置覆盖回 false。
+        string(name: 'BLOG_TRANSLATION_ENABLED', defaultValue: '',
+               description: '是否启用中文转英文后台翻译：true / false。第一次启用请填 true；之后留空沿用')
+        string(name: 'BLOG_TRANSLATION_BASE_URL', defaultValue: '',
+               description: 'OpenAI 兼容接口地址，例如 https://api.openai.com/v1；留空沿用')
+        password(name: 'BLOG_TRANSLATION_API_KEY', defaultValue: '',
+                 description: '翻译服务 API Key。启用翻译时必填；之后留空沿用已保存的值')
+        string(name: 'BLOG_TRANSLATION_MODEL', defaultValue: '',
+               description: '翻译模型，例如 gpt-4o-mini；留空沿用')
+        string(name: 'BLOG_TRANSLATION_BATCH_SIZE', defaultValue: '',
+               description: '每轮最多处理任务数，1-10；留空沿用')
     }
 
     environment {
@@ -66,6 +83,11 @@ pipeline {
                     set -u
                     bad=0
                     store="${BLOG_ENV_STORE}"
+                    translation_enabled_input="${BLOG_TRANSLATION_ENABLED:-}"
+                    translation_base_url_input="${BLOG_TRANSLATION_BASE_URL:-}"
+                    translation_api_key_input="${BLOG_TRANSLATION_API_KEY:-}"
+                    translation_model_input="${BLOG_TRANSLATION_MODEL:-}"
+                    translation_batch_size_input="${BLOG_TRANSLATION_BATCH_SIZE:-}"
 
                     filled=0
                     empty=0
@@ -119,6 +141,60 @@ pipeline {
                     fi
 
                     eval "$(bash deploy/export-blog-env.sh "$store")"
+
+                    # 翻译配置可选，但一旦启用必须有完整的可运行配置。
+                    # 先取本次参数，留空的项再沿用 blog.env，最后才落盘，避免 Build Now 的默认空值覆盖旧配置。
+                    translation_enabled="${translation_enabled_input:-${BLOG_TRANSLATION_ENABLED:-false}}"
+                    translation_base_url="${translation_base_url_input:-${BLOG_TRANSLATION_BASE_URL:-https://api.openai.com/v1}}"
+                    translation_api_key="${translation_api_key_input:-${BLOG_TRANSLATION_API_KEY:-}}"
+                    translation_model="${translation_model_input:-${BLOG_TRANSLATION_MODEL:-gpt-4o-mini}}"
+                    translation_batch_size="${translation_batch_size_input:-${BLOG_TRANSLATION_BATCH_SIZE:-2}}"
+
+                    case "$translation_enabled" in
+                        true|false) ;;
+                        *)
+                            echo "BLOG_TRANSLATION_ENABLED 必须是 true 或 false"
+                            bad=1
+                            ;;
+                    esac
+                    if [ "$translation_enabled" = "true" ] && [ -z "$translation_api_key" ]; then
+                        echo "翻译已启用，但 BLOG_TRANSLATION_API_KEY 为空"
+                        bad=1
+                    fi
+                    if [ -z "$translation_base_url" ] || ! [[ "$translation_base_url" =~ ^https?:// ]]; then
+                        echo "BLOG_TRANSLATION_BASE_URL 必须是 http:// 或 https:// 开头的地址"
+                        bad=1
+                    fi
+                    if [ -z "$translation_model" ]; then
+                        echo "BLOG_TRANSLATION_MODEL 不能为空"
+                        bad=1
+                    fi
+                    if ! [[ "$translation_batch_size" =~ ^([1-9]|10)$ ]]; then
+                        echo "BLOG_TRANSLATION_BATCH_SIZE 必须是 1-10"
+                        bad=1
+                    fi
+                    if [ "$bad" != 0 ]; then
+                        exit 1
+                    fi
+
+                    # 始终用合并后的值重写，保证旧版 blog.env 也补齐翻译配置；不打印任何密钥内容。
+                    umask 077
+                    tmp="${store}.tmp.$$"
+                    {
+                        printf 'BLOG_DB_ROOT_PASSWORD=%s\n' "$BLOG_DB_ROOT_PASSWORD"
+                        printf 'BLOG_DB_PASSWORD=%s\n' "$BLOG_DB_PASSWORD"
+                        printf 'BLOG_JWT_SECRET=%s\n' "$BLOG_JWT_SECRET"
+                        printf 'BLOG_ADMIN_USERNAME=%s\n' "$BLOG_ADMIN_USERNAME"
+                        printf "BLOG_ADMIN_PASSWORD_HASH='%s'\n" "$BLOG_ADMIN_PASSWORD_HASH"
+                        printf 'BLOG_TRANSLATION_ENABLED=%s\n' "$translation_enabled"
+                        printf 'BLOG_TRANSLATION_BASE_URL=%s\n' "$translation_base_url"
+                        printf 'BLOG_TRANSLATION_API_KEY=%s\n' "$translation_api_key"
+                        printf 'BLOG_TRANSLATION_MODEL=%s\n' "$translation_model"
+                        printf 'BLOG_TRANSLATION_BATCH_SIZE=%s\n' "$translation_batch_size"
+                    } > "$tmp"
+                    mv -f "$tmp" "$store"
+
+                    # 后续 stage 会重新从 blog.env 导出，这里只校验合并结果。
                     for name in BLOG_DB_ROOT_PASSWORD BLOG_DB_PASSWORD BLOG_JWT_SECRET BLOG_ADMIN_USERNAME BLOG_ADMIN_PASSWORD_HASH; do
                         if [ -z "${!name:-}" ]; then
                             echo "已保存的文件缺少: $name"; bad=1
@@ -130,7 +206,7 @@ pipeline {
                     if ! [[ "${BLOG_API_PORT}" =~ ^[0-9]{2,5}$ ]]; then
                         echo "BLOG_API_PORT 必须是数字端口"; bad=1
                     fi
-                    [ "$bad" = 0 ] && echo "密钥校验通过（未输出任何密钥的值）"
+                    [ "$bad" = 0 ] && echo "密钥和翻译配置校验通过（未输出任何密钥的值）"
                     exit "$bad"
                 '''
             }
