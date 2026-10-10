@@ -17,12 +17,18 @@ class BlogPropertiesBindingTest {
                         "blog.admin.username=admin",
                         "blog.admin.password-hash=$2a$10$" + "a".repeat(53),
                         "blog.jwt.secret=" + "s".repeat(40),
-                        "blog.cookie.name=blog_token")
+                        "blog.cookie.name=blog_token",
+                        // 显式给值而不断言默认值：Jenkins 会把构建参数（如 BLOG_TRANSLATION_ENABLED）
+                        // 当环境变量注入，断言默认值会随流水线参数变化。
+                        "blog.translation.enabled=true",
+                        "blog.translation.model=test-model",
+                        "blog.login.max-failures=7")
                 .run(ctx -> {
                     assertThat(ctx).hasNotFailed();
                     BlogProperties p = ctx.getBean(BlogProperties.class);
-                    assertThat(p.translation().enabled()).isFalse();
-                    assertThat(p.login().maxFailures()).isEqualTo(5);
+                    assertThat(p.translation().enabled()).isTrue();
+                    assertThat(p.translation().model()).isEqualTo("test-model");
+                    assertThat(p.login().maxFailures()).isEqualTo(7);
                 });
     }
 
