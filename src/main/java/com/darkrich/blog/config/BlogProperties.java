@@ -8,6 +8,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 import org.springframework.validation.annotation.Validated;
 
@@ -32,6 +33,12 @@ public record BlogProperties(
         @Valid @NotNull Cookie cookie,
         @Valid @DefaultValue Login login,
         @Valid @DefaultValue Translation translation) {
+
+    // record 有多个构造器时 Boot 无法推断绑定哪个，会退回 JavaBean 绑定并报 "No default constructor found"，
+    // 所以必须在规范构造器上显式标注。
+    @ConstructorBinding
+    public BlogProperties {
+    }
 
     /** Backward-compatible constructor for focused unit tests and small integrations. */
     public BlogProperties(Admin admin, Jwt jwt, Cookie cookie, Login login) {
