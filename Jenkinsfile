@@ -129,6 +129,11 @@ pipeline {
                             printf 'BLOG_ADMIN_USERNAME=%s\n' "$BLOG_ADMIN_USERNAME"
                             printf "BLOG_ADMIN_PASSWORD_HASH='%s'\n" "$BLOG_ADMIN_PASSWORD_HASH"
                         } > "$tmp"
+                        # 重填密钥（例如更换 JWT）时不能把已保存的翻译配置一起冲掉：
+                        # 这里先原样带上旧的 BLOG_TRANSLATION_* 行，后面的合并步骤再按本次参数覆盖。
+                        if [ -f "$store" ]; then
+                            grep -E '^BLOG_TRANSLATION_' "$store" >> "$tmp" || true
+                        fi
                         mv -f "$tmp" "$store"
                         echo "密钥已保存到服务器（之后 Build Now 不用再填）"
                     elif [ ! -f "$store" ]; then
