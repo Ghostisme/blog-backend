@@ -6,15 +6,15 @@
     <sql id="listColumns">
         a.id, a.slug,
         CASE WHEN #{f.english} = TRUE AND a.translation_status = 'COMPLETED'
-                   AND a.title_en IS NOT NULL AND a.title_en <> ''
-                   AND a.content_en IS NOT NULL AND a.content_en <> '' THEN a.title_en ELSE a.title END AS title,
+                   AND a.title_en IS NOT NULL AND a.title_en != ''
+                   AND a.content_en IS NOT NULL AND a.content_en != '' THEN a.title_en ELSE a.title END AS title,
         a.title_en,
         CASE WHEN #{f.english} = TRUE AND a.translation_status = 'COMPLETED'
-                   AND a.title_en IS NOT NULL AND a.title_en <> ''
-                   AND a.content_en IS NOT NULL AND a.content_en <> '' THEN a.summary_en ELSE a.summary END AS summary,
+                   AND a.title_en IS NOT NULL AND a.title_en != ''
+                   AND a.content_en IS NOT NULL AND a.content_en != '' THEN a.summary_en ELSE a.summary END AS summary,
         a.summary_en, a.translation_status,
-        (a.translation_status = 'COMPLETED' AND a.title_en IS NOT NULL AND a.title_en <> ''
-            AND a.content_en IS NOT NULL AND a.content_en <> '') AS has_english_translation,
+        (a.translation_status = 'COMPLETED' AND a.title_en IS NOT NULL AND a.title_en != ''
+            AND a.content_en IS NOT NULL AND a.content_en != '') AS has_english_translation,
         a.level, a.category_id, a.status,
         a.source_url, a.source_author, a.cover_url, a.view_count, a.word_count,
         a.published_at, a.created_at, a.updated_at
@@ -43,10 +43,10 @@
             <if test="f.ftsExpr != null and f.english == true">
                 AND (
                     (a.translation_status = 'COMPLETED'
-                        AND a.title_en IS NOT NULL AND a.title_en <> ''
-                        AND a.content_en IS NOT NULL AND a.content_en <> ''
+                        AND a.title_en IS NOT NULL AND a.title_en != ''
+                        AND a.content_en IS NOT NULL AND a.content_en != ''
                         AND MATCH(a.title_en, a.summary_en, a.content_en) AGAINST (#{f.ftsExpr} IN BOOLEAN MODE))
-                    OR ((a.translation_status <> 'COMPLETED' OR a.translation_status IS NULL
+                    OR ((a.translation_status != 'COMPLETED' OR a.translation_status IS NULL
                         OR a.title_en IS NULL OR a.title_en = ''
                         OR a.content_en IS NULL OR a.content_en = '')
                         AND MATCH(a.title, a.summary, a.content) AGAINST (#{f.ftsExpr} IN BOOLEAN MODE))
@@ -57,10 +57,10 @@
                     <when test="f.english == true">
                         AND (
                             (a.translation_status = 'COMPLETED'
-                                AND a.title_en IS NOT NULL AND a.title_en <> ''
-                                AND a.content_en IS NOT NULL AND a.content_en <> ''
+                                AND a.title_en IS NOT NULL AND a.title_en != ''
+                                AND a.content_en IS NOT NULL AND a.content_en != ''
                                 AND (a.title_en LIKE #{p} OR a.summary_en LIKE #{p}))
-                            OR ((a.translation_status <> 'COMPLETED' OR a.translation_status IS NULL
+                            OR ((a.translation_status != 'COMPLETED' OR a.translation_status IS NULL
                                 OR a.title_en IS NULL OR a.title_en = ''
                                 OR a.content_en IS NULL OR a.content_en = '')
                                 AND (a.title LIKE #{p} OR a.summary LIKE #{p}))
