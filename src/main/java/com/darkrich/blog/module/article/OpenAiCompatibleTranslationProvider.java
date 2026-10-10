@@ -77,6 +77,7 @@ public class OpenAiCompatibleTranslationProvider implements ArticleTranslationPr
 
     private static String systemPrompt(ArticleLanguage source, ArticleLanguage target) {
         return "你是专业技术文章翻译器。将" + languageName(source) + "翻译为" + languageName(target) + "。"
+                + "只能根据用户提供的中文原文直接翻译，禁止查找、猜测或引用外部英文版本。"
                 + "只返回 JSON，不要返回 Markdown 代码围栏或解释文字。"
                 + "JSON 必须包含 title、summary、content 三个字段。"
                 + "保留 Markdown 标题层级、列表、表格、链接、图片地址、HTML 和代码围栏；"
@@ -85,7 +86,7 @@ public class OpenAiCompatibleTranslationProvider implements ArticleTranslationPr
     }
 
     private static String userPrompt(Article article) {
-        return "请翻译下面这篇文章。原文标题：\n" + value(article.getTitle())
+        return "请直接把下面现有的中文文章翻译成英文，不要寻找其它版本。原文标题：\n" + value(article.getTitle())
                 + "\n\n原文摘要：\n" + value(article.getSummary())
                 + "\n\n原文正文：\n" + value(article.getContent());
     }
