@@ -38,7 +38,8 @@ public class SameOriginFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         return SAFE_METHODS.contains(request.getMethod())
-                || !request.getRequestURI().startsWith(PROTECTED_PREFIX);
+                || !(request.getRequestURI().startsWith(PROTECTED_PREFIX)
+                     || request.getRequestURI().startsWith("/api/assistant"));
     }
 
     @Override

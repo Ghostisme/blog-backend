@@ -1,6 +1,7 @@
 package com.darkrich.blog.security;
 
 import com.darkrich.blog.config.BlogProperties;
+import jakarta.servlet.DispatcherType;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -46,11 +47,16 @@ public class SecurityConfig {
                         .authenticationEntryPoint(handlers)
                         .accessDeniedHandler(handlers))
                 .authorizeHttpRequests(auth -> auth
+                        // SSE completes through an async redispatch of an already authorized request.
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                         // 登录/登出必须公开：登出要在令牌已过期时也能清掉 Cookie
                         .requestMatchers(HttpMethod.POST, "/api/admin/login", "/api/admin/logout").permitAll()
                         .requestMatchers("/api/admin/**").authenticated()
                         .requestMatchers(HttpMethod.GET,
-                                "/api/articles", "/api/articles/*", "/api/filters", "/api/resume").permitAll()
+                                "/api/articles", "/api/articles/*", "/api/filters", "/api/resume",
+                                "/api/assistant/config", "/api/assistant/runs/*/events").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/assistant/chat",
+                                "/api/assistant/runs/*/resume", "/api/assistant/runs/*/cancel").permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
                         .anyRequest().denyAll())
                 .addFilterBefore(sameOriginFilter, UsernamePasswordAuthenticationFilter.class)

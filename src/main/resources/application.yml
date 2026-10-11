@@ -59,3 +59,10 @@ blog:
     api-key: ${BLOG_TRANSLATION_API_KEY:}
     model: ${BLOG_TRANSLATION_MODEL:gpt-4o-mini}
     batch-size: ${BLOG_TRANSLATION_BATCH_SIZE:2}
+  assistant:
+    # 小R默认复用已配置的翻译服务；可用独立变量覆盖，密钥仅留在服务端。
+    enabled: ${BLOG_ASSISTANT_ENABLED:${BLOG_TRANSLATION_ENABLED:false}}
+    base-url: ${BLOG_ASSISTANT_BASE_URL:${BLOG_TRANSLATION_BASE_URL:https://api.openai.com/v1}}
+    api-key: ${BLOG_ASSISTANT_API_KEY:${BLOG_TRANSLATION_API_KEY:}}
+    model: ${BLOG_ASSISTANT_MODEL:${BLOG_TRANSLATION_MODEL:gpt-4o-mini}}
+    requests-per-window: 12

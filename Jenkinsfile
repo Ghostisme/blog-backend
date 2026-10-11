@@ -65,6 +65,14 @@ pipeline {
                description: '翻译模型，例如 gpt-4o-mini；留空沿用')
         string(name: 'BLOG_TRANSLATION_BATCH_SIZE', defaultValue: '',
                description: '每轮最多处理任务数，1-10；留空沿用')
+        string(name: 'BLOG_ASSISTANT_ENABLED', defaultValue: '',
+               description: '小R助手开关 true / false；留空复用已保存的值，未单独配置时跟随翻译服务')
+        string(name: 'BLOG_ASSISTANT_BASE_URL', defaultValue: '',
+               description: '可选，小R的独立模型接口；留空复用已保存的值或翻译接口')
+        password(name: 'BLOG_ASSISTANT_API_KEY', defaultValue: '',
+                 description: '可选，小R的独立 API Key；留空复用已保存的值或翻译 API Key')
+        string(name: 'BLOG_ASSISTANT_MODEL', defaultValue: '',
+               description: '可选，小R的独立模型；需要支持流式输出和 tool calling；留空复用翻译模型')
     }
 
     environment {
@@ -88,6 +96,10 @@ pipeline {
                     translation_api_key_input="${BLOG_TRANSLATION_API_KEY:-}"
                     translation_model_input="${BLOG_TRANSLATION_MODEL:-}"
                     translation_batch_size_input="${BLOG_TRANSLATION_BATCH_SIZE:-}"
+                    assistant_enabled_input="${BLOG_ASSISTANT_ENABLED:-}"
+                    assistant_base_url_input="${BLOG_ASSISTANT_BASE_URL:-}"
+                    assistant_api_key_input="${BLOG_ASSISTANT_API_KEY:-}"
+                    assistant_model_input="${BLOG_ASSISTANT_MODEL:-}"
 
                     filled=0
                     empty=0
@@ -132,7 +144,7 @@ pipeline {
                         # 重填密钥（例如更换 JWT）时不能把已保存的翻译配置一起冲掉：
                         # 这里先原样带上旧的 BLOG_TRANSLATION_* 行，后面的合并步骤再按本次参数覆盖。
                         if [ -f "$store" ]; then
-                            grep -E '^BLOG_TRANSLATION_' "$store" >> "$tmp" || true
+                            grep -E '^BLOG_(TRANSLATION|ASSISTANT)_' "$store" >> "$tmp" || true
                         fi
                         mv -f "$tmp" "$store"
                         echo "密钥已保存到服务器（之后 Build Now 不用再填）"
@@ -154,6 +166,10 @@ pipeline {
                     translation_api_key="${translation_api_key_input:-${BLOG_TRANSLATION_API_KEY:-}}"
                     translation_model="${translation_model_input:-${BLOG_TRANSLATION_MODEL:-gpt-4o-mini}}"
                     translation_batch_size="${translation_batch_size_input:-${BLOG_TRANSLATION_BATCH_SIZE:-2}}"
+                    assistant_enabled="${assistant_enabled_input:-${BLOG_ASSISTANT_ENABLED:-}}"
+                    assistant_base_url="${assistant_base_url_input:-${BLOG_ASSISTANT_BASE_URL:-}}"
+                    assistant_api_key="${assistant_api_key_input:-${BLOG_ASSISTANT_API_KEY:-}}"
+                    assistant_model="${assistant_model_input:-${BLOG_ASSISTANT_MODEL:-}}"
 
                     case "$translation_enabled" in
                         true|false) ;;
@@ -178,6 +194,16 @@ pipeline {
                         echo "BLOG_TRANSLATION_BATCH_SIZE 必须是 1-10"
                         bad=1
                     fi
+                    case "$assistant_enabled" in
+                        ''|true|false) ;;
+                        *) echo "BLOG_ASSISTANT_ENABLED 必须是 true 或 false"; bad=1 ;;
+                    esac
+                    if [ -n "$assistant_base_url" ] && ! [[ "$assistant_base_url" =~ ^https?:// ]]; then
+                        echo "BLOG_ASSISTANT_BASE_URL 必须是 http:// 或 https:// 开头的地址"; bad=1
+                    fi
+                    if [ "${assistant_enabled:-$translation_enabled}" = true ] && [ -z "${assistant_api_key:-$translation_api_key}" ]; then
+                        echo "小R已启用，但没有可用的 API Key"; bad=1
+                    fi
                     if [ "$bad" != 0 ]; then
                         exit 1
                     fi
@@ -196,6 +222,10 @@ pipeline {
                         printf 'BLOG_TRANSLATION_API_KEY=%s\n' "$translation_api_key"
                         printf 'BLOG_TRANSLATION_MODEL=%s\n' "$translation_model"
                         printf 'BLOG_TRANSLATION_BATCH_SIZE=%s\n' "$translation_batch_size"
+                        printf 'BLOG_ASSISTANT_ENABLED=%s\n' "$assistant_enabled"
+                        printf 'BLOG_ASSISTANT_BASE_URL=%s\n' "$assistant_base_url"
+                        printf 'BLOG_ASSISTANT_API_KEY=%s\n' "$assistant_api_key"
+                        printf 'BLOG_ASSISTANT_MODEL=%s\n' "$assistant_model"
                     } > "$tmp"
                     mv -f "$tmp" "$store"
 

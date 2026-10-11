@@ -7,6 +7,7 @@ blog.darkrich.com 个人博客后端。Spring Boot 3.5 · JDK 17 · MyBatis-Plus
 - 文章：按 **等级**（入门 / 进阶 / 高级 / 资深）、**领域**（前端 / 后端 / 数据库 / 运维 / 移动端，可在后台增删）、**标签** 分类；中文全文检索（MySQL ngram）。
 - 简历：中 / 英文各一份，整体存为 JSON。
 - 后台：单管理员登录（JWT 放在 HttpOnly Cookie）、文章 / 领域 / 标签 / 简历管理、批量修改、Markdown 批量导入。
+- 小R助手：普通对话、已发布文章检索与总结、站内跳转、真实博客统计、表格 / 图表 / Markdown 文档。使用 SSE 流式回复，支持停止、断线重连和按需人工选择。
 
 ## 接口
 
@@ -18,10 +19,27 @@ blog.darkrich.com 个人博客后端。Spring Boot 3.5 · JDK 17 · MyBatis-Plus
 | GET | `/api/articles/{slug}` | 详情（浏览量 +1，含上下篇） |
 | GET | `/api/filters` | 筛选栏数据：等级 / 领域 / 标签及文章数 |
 | GET | `/api/resume?lang=zh\|en` | 简历 |
+| GET | `/api/assistant/config` | 小R名称及是否启用，不返回模型凭据 |
+| POST | `/api/assistant/chat` | SSE 新对话。JSON：`message lang pagePath history` |
+| GET | `/api/assistant/runs/{id}/events?after=序号` | SSE 按游标恢复已有回复 |
+| POST | `/api/assistant/runs/{id}/resume` | SSE 人工选择后继续。JSON：`approvalId choiceId` |
+| POST | `/api/assistant/runs/{id}/cancel` | 停止当前回复或取消待确认步骤 |
 
 后台（需登录，路径前缀 `/api/admin`）：`POST login / logout`、`GET me`、`/articles` 增删改查、`PATCH /articles` 批量修改、`DELETE /articles?ids=` 批量删除、`POST /articles/import` 导入、`/categories`、`/tags`、`PUT /resume/{lang}`。
 
-统一响应 `{ "code": 200, "message": "ok", "data": ... }`，`code` 与 HTTP 状态码一致。
+普通接口与流建立前的错误使用统一响应 `{ "code": 200, "message": "ok", "data": ... }`，`code` 与 HTTP 状态码一致。助手成功回复使用 `text/event-stream`。
+
+## 小R助手
+
+默认复用已启用的翻译服务地址、API Key 和模型。模型必须支持 OpenAI 兼容的 `/chat/completions`、流式回复和 function/tool calling；仅能翻译文本的接口不足以执行助手工具。API Key 始终由后端调用，前端只传匿名会话标识 `X-R-Session`（64 位小写十六进制）。
+
+普通聊天直接回复；查找、总结和统计通过工具读取已发布文章及公开简历。明确要求“打开作者简历”“跳转到某篇文章”时执行站内跳转；普通介绍只展示链接。目标需要用户选择时暂停执行，文档自动下载先展示确认卡片，用户选择后才继续。人工直接点击预览里的下载按钮或表格的 CSV 下载按钮会立即下载。
+
+SSE 事件包含递增 `id`、`event` 和 JSON `data`，事件类型为 `meta / status / text_delta / block / navigation / approval / decision / action / error / done`。`block` 支持文章卡片、表格、柱状图 / 折线图和 Markdown 文档。`done.status` 为 `WAITING / COMPLETED / FAILED / CANCELLED`；`WAITING` 结束当前连接，后续通过 `resume` 继续同一个 run。
+
+`V4__assistant_runs.sql` 新增独立的执行状态和事件表，不修改已有文章。待确认状态与回复保留 24 小时并定期清理；确认以数据库条件更新防止重复执行。部署中断的运行中回复恢复为失败，已保存的确认仍可继续。恢复连接不会自动重放页面跳转或下载，前端保留对应结果供用户点击。
+
+每个 IP 默认 10 分钟最多 12 次提问 / 继续操作，同时最多执行 4 个请求；每轮最多 6 次模型调用，总时限约 4 分钟，心跳 15 秒。文章工具读取不会增加浏览量。当前文档格式为 Markdown，表格支持 CSV。
 
 ## 文章导入
 
@@ -79,6 +97,10 @@ docker run -d --name blog-mysql-dev -p 127.0.0.1:23306:3306 \
 | `BLOG_TRANSLATION_API_KEY` | 翻译服务 API Key；启用翻译时必填 |
 | `BLOG_TRANSLATION_MODEL` | 翻译模型，例如 `gpt-4o-mini` |
 | `BLOG_TRANSLATION_BATCH_SIZE` | 每轮最多处理任务数，范围 `1-10` |
+| `BLOG_ASSISTANT_ENABLED` | 可选，单独启用 / 关闭小R；未配置时跟随翻译开关 |
+| `BLOG_ASSISTANT_BASE_URL` | 可选，单独模型地址；未配置时复用翻译地址 |
+| `BLOG_ASSISTANT_API_KEY` | 可选，单独 API Key；未配置时复用翻译 Key |
+| `BLOG_ASSISTANT_MODEL` | 可选，单独模型；未配置时复用翻译模型，需支持流式工具调用 |
 
 前五项为必填配置，缺任何一项应用都会启动失败；翻译五项有安全默认值，只有启用翻译时才需要配置 API Key。生成管理员哈希（口令从标准输入读取，不留在命令历史里）：
 
@@ -99,6 +121,9 @@ read -rsp '口令: ' P; echo; printf '%s' "$P" | docker run --rm -i httpd:2.4-al
 | `JDK_HOME` | 编译用的 JDK 目录，默认 `/usr/lib/jvm/java-17-openjdk-amd64` |
 | 密钥五项 | 第一次必填；之后留空 = 用服务器上已保存的值 |
 | 翻译配置五项 | 按需启用；第一次启用时填写，之后留空 = 用服务器上已保存的值 |
+| 小R配置四项 | 可全部留空复用翻译服务；单独配置后留空会沿用已保存的覆盖值 |
+
+已有翻译配置的站点重新构建后端即可启用小R，不需要重新填写 API Key。需要单独关闭时填 `BLOG_ASSISTANT_ENABLED=false`。同时发布前端，并更新前端仓库 Nginx 配置中的 `/api/assistant/` 段，关闭代理缓冲与 gzip，避免 SSE 回复积攒到结束才显示。
 
 MySQL 口令只在数据卷首次初始化时生效。之后改已保存的文件不会改数据库里的口令，只会让 API 连不上。若之前漏填口令已经把空库初始化坏了、且库里没有要保留的数据，先停掉再删卷再部署：
 
@@ -116,7 +141,7 @@ docker compose up -d --build
 
 ### Nginx
 
-前端仓库的 `deploy/nginx/blog.darkrich.com.conf` 里已包含 `/api` 反代，`proxy_pass` 的端口需与 `BLOG_API_PORT` 一致。
+前端仓库的 `deploy/nginx/blog.darkrich.com.conf` 里已包含 `/api` 反代和助手专用的无缓冲 SSE 配置，`proxy_pass` 的端口需与 `BLOG_API_PORT` 一致。
 
 ## 安全说明
 

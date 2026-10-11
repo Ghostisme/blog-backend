@@ -72,4 +72,12 @@ public class ArticleQueryService {
                 .toList();
         return new FilterOptions(levels, categoryService.listPublic(), tagService.listPublic());
     }
+
+    /** Assistant retrieval must not count as a reader opening the article. */
+    public ArticleDetail readForAssistant(String slug, ArticleLanguage language) {
+        Article article = mapper.selectOne(new LambdaQueryWrapper<Article>()
+                .eq(Article::getSlug, slug).eq(Article::getStatus, ArticleStatus.PUBLISHED));
+        if (article == null) throw BusinessException.notFound("文章不存在");
+        return assembler.toDetail(article, null, null, language);
+    }
 }
