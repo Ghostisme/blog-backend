@@ -261,7 +261,8 @@ pipeline {
                     echo "JAVA_HOME=$JAVA_HOME"
                     command -v java; java -version
                     command -v javac; javac -version
-                    ./mvnw -B test
+                    # 清掉上次构建产物：迁移文件改名后，resources 插件不会删除 target 里的旧文件。
+                    ./mvnw -B clean test
                 '''
             }
             post {

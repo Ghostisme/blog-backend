@@ -37,7 +37,7 @@ blog.darkrich.com 个人博客后端。Spring Boot 3.5 · JDK 17 · MyBatis-Plus
 
 SSE 事件包含递增 `id`、`event` 和 JSON `data`，事件类型为 `meta / status / text_delta / block / navigation / approval / decision / action / error / done`。`block` 支持文章卡片、表格、柱状图 / 折线图和 Markdown 文档。`done.status` 为 `WAITING / COMPLETED / FAILED / CANCELLED`；`WAITING` 结束当前连接，后续通过 `resume` 继续同一个 run。
 
-`V4__assistant_runs.sql` 新增独立的执行状态和事件表，不修改已有文章。待确认状态与回复保留 24 小时并定期清理；确认以数据库条件更新防止重复执行。部署中断的运行中回复恢复为失败，已保存的确认仍可继续。恢复连接不会自动重放页面跳转或下载，前端保留对应结果供用户点击。
+`V5__assistant_runs.sql` 新增独立的执行状态和事件表，不修改已有文章；原有 `V4__architecture_category_icon.sql` 保持原版本。待确认状态与回复保留 24 小时并定期清理；确认以数据库条件更新防止重复执行。部署中断的运行中回复恢复为失败，已保存的确认仍可继续。恢复连接不会自动重放页面跳转或下载，前端保留对应结果供用户点击。
 
 每个 IP 默认 10 分钟最多 12 次提问 / 继续操作，同时最多执行 4 个请求；每轮最多 6 次模型调用，总时限约 4 分钟，心跳 15 秒。文章工具读取不会增加浏览量。当前文档格式为 Markdown，表格支持 CSV。
 
@@ -69,10 +69,10 @@ docker run -d --name blog-mysql-dev -p 127.0.0.1:23306:3306 \
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
-测试（集成测试使用 Testcontainers，需要 Docker 在运行；没有 Docker 时自动跳过）：
+测试（集成测试使用 Testcontainers，需要 Docker 在运行；没有 Docker 时自动跳过。迁移扫描检查独立运行，可在没有 Docker 时发现重复版本）：
 
 ```bash
-./mvnw test
+./mvnw clean test
 ```
 
 ## 部署

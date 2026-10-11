@@ -19,7 +19,7 @@ class JdbcAssistantRunRepositoryTest {
     @BeforeEach void createIsolatedDatabase() throws Exception {
         var source = new DriverManagerDataSource("jdbc:h2:mem:assistant-" + UUID.randomUUID() + ";MODE=MySQL;DB_CLOSE_DELAY=-1", "sa", "");
         try (var connection = source.getConnection()) {
-            ScriptUtils.executeSqlScript(connection, new ClassPathResource("db/migration/V4__assistant_runs.sql"));
+            ScriptUtils.executeSqlScript(connection, new ClassPathResource("db/migration/V5__assistant_runs.sql"));
         }
         jdbc = new JdbcTemplate(source); repo = new JdbcAssistantRunRepository(jdbc, json);
     }
